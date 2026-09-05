@@ -165,7 +165,7 @@ def status():
             latest[kind] = None if row is None else {"captured_at": row[0], "value": json.loads(gzip.decompress(row[1]))}
     with LOCK:
         runtime = dict(RUNTIME)
-    return {"version": "1.0.2", "retention_days": RETENTION, "sample_seconds": 60,
+    return {"version": "1.0.3", "retention_days": RETENTION, "sample_seconds": 60,
             "counts": totals, "first_record": span[0], "last_record": span[1],
             "bytes": sum(p.stat().st_size for p in DATA.glob("journal.sqlite3*")),
             "runtime": runtime, "latest": latest, "residents": RESIDENTS,
@@ -211,8 +211,10 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send(400, {"error": "days must be an integer"})
             cutoff = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=days)).isoformat(timespec="seconds")
             self.send_response(200)
-            self.send_header("Content-Type", "application/x-ndjson")
-            self.send_header("Content-Disposition", 'attachment; filename="occupancy-journal.jsonl"')
+            # Display plain text inside HA ingress; forced attachment navigation
+            # can be blocked by browsers when initiated from the embedded panel.
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.send_header("X-Content-Type-Options", "nosniff")
             self.send_header("Cache-Control", "no-store")
             self.end_headers()
             try:
