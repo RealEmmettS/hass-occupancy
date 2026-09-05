@@ -1,3 +1,11 @@
+# 0.1.1 — Independent Pi-compatible release
+
+- Fix Pi 4 startup by replacing PyArrow 21.0.0 with 22.0.0.
+- Validate native imports, Parquet round-trip and model fit during image build.
+- Preserve LF shell line endings for Windows checkouts.
+- Add an optional observational journal with 90-day history and JSONL exports.
+- Document independent ownership and no upstream synchronization or submissions.
+
 # Changelog
 
 All notable changes to the Occupancy Forecast add-on are documented in this file.

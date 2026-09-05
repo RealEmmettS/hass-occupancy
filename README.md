@@ -1,4 +1,16 @@
-# Occupancy Forecast
+# Occupancy Forecast � independent personal project
+
+This is **RealEmmettS's independently maintained version**. It will not be sent
+back upstream, and it does not automatically sync with the original repository.
+Read [FORK.md](FORK.md) for ownership, update policy, and the Pi 4 compatibility
+fix. The original MIT license and attribution remain in place.
+
+Install this repository URL: `https://github.com/RealEmmettS/hass-occupancy`.
+It also includes [Occupancy Test Journal](occupancy-journal/DOCS.md), an optional
+local journal of forecast revisions, observed presence, and cooling context.
+Household-specific configuration and logs stay private on the HA installation.
+
+## Original project overview
 
 A Home Assistant add-on that forecasts **who will be home, hour by hour, for the
 next two days** — and, once somebody is on their way, **how many minutes until
@@ -13,7 +25,7 @@ custom integration to install.
 1. Settings → Add-ons → Add-on Store → ⋮ → **Repositories**, and add:
 
    ```
-   https://github.com/MartvanMale/hass-occupancy
+   https://github.com/RealEmmettS/hass-occupancy
    ```
 
 2. Install **Occupancy Forecast**, start it, and open its panel from the sidebar.
@@ -107,28 +119,19 @@ the sensors you already have answer the second one better.
 by default, and long-term statistics do not cover presence at all. Measured on a
 recorder configured for 100 days, the history API reached back 21.
 
-So the add-on keeps its own archive, appending from the moment it is installed —
-about 2 MB a year, and it never purges. From the first day it publishes
-**baselines**: persistence for the near hours, same-slot-yesterday further out.
-Those are real forecasts, not placeholders — persistence alone scores a Brier of
-0.053 at one hour.
+The add-on keeps its own local archive in SQLite and does not purge the input
+history. On a new installation, forecasts remain `unknown` until there is enough
+usable history to train and a horizon passes the publication gate. Current
+presence readings can appear immediately; they are observations, not forecasts.
 
-It starts training at **10 days**, which is the point where there is enough
-history to hold out a test window at all. Early models are weak, and most
-horizons will not beat their baseline at first. That is the intended outcome
-rather than a disappointment: a horizon is served by the model **only** where
-the model measurably beat that horizon's own baseline, and otherwise the
-baseline keeps serving. Training early therefore cannot make your forecasts
-worse — it can only add skill where skill has been demonstrated.
+Training begins at roughly 10 usable days. Each horizon is published only when
+the model beats its baseline sufficiently in held-out testing. Unqualified
+horizons remain empty; baselines are the comparison bar, not served predictions.
+ETA has its own data and validation requirements and may take longer.
 
-While history is short the add-on retrains daily, so you can watch horizons
-switch over one at a time. `served_by` on the status page always says which is
-which, and `horizons_shipping` counts them.
-
-**Horizons can switch back, too.** The baselines get better with more history —
-a weekday-by-slot climatology needs a couple of dozen samples per cell before it
-means anything — so a horizon the model won at two weeks can be handed back to
-the baseline at two months. That is the gate working, not a regression.
+The native **Was it right?** view retains 30 days of hourly served results. The
+optional journal additionally preserves sampled forecast revisions, ETA and
+observations with a configurable retention period (90 days by default).
 
 ### Where that history should live
 

@@ -7,6 +7,11 @@ __pycache__/
 *.db
 *.db-wal
 *.db-shm
+*.sqlite3
+*.sqlite3-wal
+*.sqlite3-shm
+occupancy-journal/options.json
+occupancy-journal/*.jsonl
 *.parquet
 
 # Fitted models. Same story: they live in /data, but a local

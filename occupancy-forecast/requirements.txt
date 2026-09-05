@@ -1,7 +1,7 @@
 # Pinned so a rebuild months from now reproduces the model that is running.
 pandas==2.3.3
 numpy==2.3.4
-pyarrow==21.0.0
+pyarrow==22.0.0
 scikit-learn==1.7.2
 # Already arrives with scikit-learn, pinned here because train.py imports it
 # directly to farm the 48 horizons out across processes.

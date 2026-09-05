@@ -29,6 +29,9 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+COPY cpu_smoke.py /tmp/cpu_smoke.py
+RUN python /tmp/cpu_smoke.py
+
 COPY occupancy_forecast/ ./occupancy_forecast/
 
 # The built Ingress panel, produced by scripts/build-panel.sh on the development

@@ -3,14 +3,14 @@
 # scripts/promote.sh. Do not edit those copies here -- edit the originals under
 # occupancy-forecast-edge/, and an edit made here is destroyed by the next promotion.
 #
-# `version` is bumped only by a promotion, and a promotion is Mart's decision.
+# Independently maintained fork; see /FORK.md for ownership and update policy.
 name: Occupancy Forecast
-version: "0.1.0"
+version: "0.1.1"
 slug: occupancy_forecast
 description: >-
   Forecasts who will be home, hour by hour, for the next two days -- and how
   many minutes until someone actually arrives.
-url: https://github.com/MartvanMale/hass-occupancy
+url: https://github.com/RealEmmettS/hass-occupancy
 license: MIT
 arch:
   # scikit-learn has no armv7 wheels worth waiting for; better to say so than to

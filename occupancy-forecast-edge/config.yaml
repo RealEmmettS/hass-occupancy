@@ -21,7 +21,7 @@ slug: occupancy_forecast_edge
 description: >-
   Development build of the Occupancy Forecast app. Runs alongside the stable one with
   its own entities, so you can compare them before promoting.
-url: https://github.com/MartvanMale/hass-occupancy
+url: https://github.com/RealEmmettS/hass-occupancy
 license: MIT
 arch:
   - aarch64
