@@ -1,4 +1,4 @@
-# Occupancy Forecast — independent personal project
+# Occupancy Forecast â€” independent personal project
 
 This is **RealEmmettS's independently maintained version**. It will not be sent
 back upstream, and it does not automatically sync with the original repository.

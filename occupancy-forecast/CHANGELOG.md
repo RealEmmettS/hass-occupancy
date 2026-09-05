@@ -1,4 +1,4 @@
-# 0.1.1 — Independent Pi-compatible release
+# 0.1.1 â€” Independent Pi-compatible release
 
 - Fix Pi 4 startup by replacing PyArrow 21.0.0 with 22.0.0.
 - Validate native imports, Parquet round-trip and model fit during image build.
