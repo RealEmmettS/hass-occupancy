@@ -170,7 +170,11 @@ def _load_models() -> None:
 def _history_days() -> float:
     source = _state["source"]
     store = getattr(source, "store", None)
-    return store.span()["days"] if store else float("inf")
+    if store is None:
+        return float("inf")
+    if _state["settings"] is None:
+        return 0.0
+    return features.usable_history_days(source)
 
 
 def do_collect() -> dict:
@@ -679,6 +683,7 @@ def _status() -> dict:
         "source": settings.source if settings else None,
         "history": store.span() if store else {"note": "influx"},
         "days_until_training": max(0, round(MIN_DAYS_TO_TRAIN - days, 1)),
+        "usable_presence_days": round(days, 3) if store else None,
         "horizons_shipping": _shipping_horizons(),
         "people": [s.slug for s in config.PEOPLE] if settings else [],
         "feature_groups": _feature_groups(),

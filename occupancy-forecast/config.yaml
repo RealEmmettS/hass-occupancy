@@ -5,7 +5,7 @@
 #
 # Independently maintained fork; see /FORK.md for ownership and update policy.
 name: Occupancy Forecast
-version: "0.1.1"
+version: "0.1.2"
 slug: occupancy_forecast
 description: >-
   Forecasts who will be home, hour by hour, for the next two days -- and how

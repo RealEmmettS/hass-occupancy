@@ -1,3 +1,12 @@
+# 0.1.2 — Preserve missing presence and truthful training readiness
+
+- Retain unknown/unavailable person and group readings as gap boundaries.
+- Reimport available person history once at startup to recover previously dropped gaps.
+- Treat unknown target intervals as missing, not away or continued home presence.
+- Keep combined-house presence unknown unless someone is known home or everyone is known away.
+- Gate training on completed, observed slots with usable presence for selected people.
+- Record usable presence coverage alongside archive age in the automatic journal.
+
 # 0.1.1 — Independent Pi-compatible release
 
 - Fix Pi 4 startup by replacing PyArrow 21.0.0 with 22.0.0.

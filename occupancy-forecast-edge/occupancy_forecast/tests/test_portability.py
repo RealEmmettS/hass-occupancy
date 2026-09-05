@@ -281,8 +281,8 @@ def test_a_next_alarm_sensor_is_collected_but_never_served():
 def test_no_alarm_set_is_recorded_rather_than_dropped(tmp_path):
     """`unavailable` on a next-alarm sensor means "no alarm", which is data.
 
-    The collector drops `unavailable` everywhere else, and rightly -- it means
-    a gap. Here it is the commoner of the two readings, and an archive that
+    Person unavailability is retained as a gap boundary. Alarm absence is the
+    commoner of the two readings, and an archive that
     stayed silent on the days nobody set an alarm could not tell those apart
     from the days the sensor was broken. Home Assistant's recorder keeps ~10
     days, so getting this wrong is not repairable after the fact.
@@ -312,9 +312,9 @@ def test_no_alarm_set_is_recorded_rather_than_dropped(tmp_path):
     alarms = [state for _, state in store.states(alarm, "2026-09-01T00:00:00Z")]
     assert alarms == ["2026-09-02T06:30:00+00:00", ABSENT]
 
-    # Unchanged for everything else: there, absence really is a gap.
+    # A missing person reading terminates the previous known state.
     people = [state for _, state in store.states(person, "2026-09-01T00:00:00Z")]
-    assert people == ["home"]
+    assert people == ["home", "unknown"]
 
 
 def test_never_having_looked_for_a_next_alarm_differs_from_finding_none():

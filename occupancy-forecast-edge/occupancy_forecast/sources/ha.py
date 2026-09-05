@@ -157,6 +157,7 @@ class StoreSource:
     def __init__(self, store: HistoryStore, ha: HomeAssistant):
         self.store = store
         self.ha = ha
+        self._presence_backfilled = False
 
     # -- Source -------------------------------------------------------------
 
@@ -181,7 +182,8 @@ class StoreSource:
 
         `absence_is_a_reading` names the entities for which `unavailable` and
         `unknown` are DATA rather than a gap, and are therefore stored instead
-        of dropped. There is exactly one shape of sensor like that so far: a
+        of dropped. Person/group gaps are always retained as `unknown` to end
+        the preceding known state. Separately, a
         next-alarm sensor reads `unavailable` precisely when no alarm is set,
         which is the more common state and at least as informative as a time.
         Dropping it would leave an archive that says nothing at all on the days
@@ -196,6 +198,10 @@ class StoreSource:
         earliest = None
         for entity_id in entity_ids:
             seen = self.store.last_seen(entity_id)
+            # Recover missing presence transitions dropped by older releases.
+            # Reimport once per process; primary keys make this idempotent.
+            if not self._presence_backfilled and entity_id.startswith(("person.", "group.")):
+                seen = None
             begin = (dt.datetime.fromtimestamp(seen / 1000, dt.timezone.utc)
                      - dt.timedelta(minutes=OVERLAP_MINUTES)) if seen else (
                      now - dt.timedelta(days=BOOTSTRAP_DAYS))
@@ -217,14 +223,16 @@ class StoreSource:
                 if not (entity_id and when):
                     continue
                 if state in (None, "", "unknown", "unavailable"):
-                    if entity_id not in keep_absence:
+                    if entity_id.startswith(("person.", "group.")):
+                        state = "unknown"
+                    elif entity_id in keep_absence:
+                        state = ABSENT
+                    else:
                         continue
-                    # Normalised, because HA uses both words for the same thing
-                    # and the reader should not have to know which one it got.
-                    state = ABSENT
                 rows.append((entity_id, _ms(when), str(state)))
 
         added = self.store.append(rows)
+        self._presence_backfilled = True
         self.store.append([(HEARTBEAT_ENTITY, int(now.timestamp() * 1000), "ok")])
         return {"added": added, "entities": len(series or []),
                 "since": earliest.isoformat()}

@@ -116,7 +116,7 @@ def sample():
             elif kind == "forecast_status":
                 # Persist training/collection context without copying arbitrary error strings.
                 value = {k: value.get(k) for k in (
-                    "status", "model_version", "source", "history", "days_until_training",
+                    "status", "model_version", "source", "history", "days_until_training", "usable_presence_days",
                     "horizons_shipping", "people", "served_by", "model_kind", "best_baseline",
                     "eta_models", "worker", "loaded_at", "last_collect", "last_predict",
                     "last_train", "last_train_seconds", "next_train", "train_cadence",
@@ -165,7 +165,7 @@ def status():
             latest[kind] = None if row is None else {"captured_at": row[0], "value": json.loads(gzip.decompress(row[1]))}
     with LOCK:
         runtime = dict(RUNTIME)
-    return {"version": "1.0.1", "retention_days": RETENTION, "sample_seconds": 60,
+    return {"version": "1.0.2", "retention_days": RETENTION, "sample_seconds": 60,
             "counts": totals, "first_record": span[0], "last_record": span[1],
             "bytes": sum(p.stat().st_size for p in DATA.glob("journal.sqlite3*")),
             "runtime": runtime, "latest": latest, "residents": RESIDENTS,

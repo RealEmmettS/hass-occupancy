@@ -609,7 +609,11 @@ def slot_fraction(events: list[tuple[str, str]], slots: pd.DatetimeIndex,
         return empty
 
     times = pd.to_datetime([t for t, _ in events], utc=True, format="ISO8601")
-    values = np.array([1.0 if str(v).strip() == match else 0.0 for _, v in events])
+    values = np.array([
+        np.nan if v is None or str(v).strip().lower() in ("", "unknown", "unavailable")
+        else 1.0 if str(v).strip() == match else 0.0
+        for _, v in events
+    ])
     order = np.argsort(times.asi8, kind="stable")
     times, values = times[order], values[order]
 
@@ -804,7 +808,10 @@ def presence_events(source, subject: config.Subject, start: str,
     for when, index, value in stamped:
         latest[index] = value
         anyone = any(v == config.HOME_STATE for v in latest.values())
-        state = config.HOME_STATE if anyone else "not_home"
+        all_known = len(latest) == len(config.PEOPLE) and all(
+            v is not None and str(v).strip().lower() not in ("", "unknown", "unavailable")
+            for v in latest.values())
+        state = config.HOME_STATE if anyone else ("not_home" if all_known else "unknown")
         if not merged or merged[-1][1] != state:
             merged.append((when, state))
     return merged
@@ -1299,6 +1306,29 @@ def history_start(source) -> str:
 
     return (pd.Timestamp.now(tz="UTC") - pd.Timedelta(days=400)).strftime(
         "%Y-%m-%dT%H:%M:%SZ")
+
+
+def usable_history_days(source, stop: str | None = None) -> float:
+    """Completed, observed slots with known presence for all selected people.
+
+    Archive age can come from an unused tracker or from old unknown readings.
+    Use the same time-weighted target coverage and capture-liveness mask as
+    training. Missing person data cannot make a model eligible sooner.
+    """
+    if not config.PEOPLE:
+        return 0.0
+    start = history_start(source)
+    end = (pd.Timestamp(stop) if stop else pd.Timestamp.now(tz="UTC")).floor(
+        f"{config.GRID_MINUTES}min")
+    slots = grid(pd.Timestamp(start), end)
+    if not len(slots):
+        return 0.0
+    valid = observability(_liveness(source, start, end.isoformat()), slots)
+    for person in config.PEOPLE:
+        events = presence_events(source, person, start, end.isoformat())
+        values = slot_fraction(events, slots, config.HOME_STATE)
+        valid &= values["frac"].notna().to_numpy()
+    return float(np.count_nonzero(valid)) / config.SLOTS_PER_DAY
 
 
 def build(source, start: str | None = None, stop: str | None = None) -> pd.DataFrame:

@@ -39,3 +39,9 @@ round-trip, metadata read, and scikit-learn fit/predict check on the target CPU.
 Shell files are forced to LF to preserve executable shebangs in Windows clones.
 The separate Occupancy Test Journal add-on keeps sampled forecast revisions,
 presence, and optional cooling observations, with 90-day retention by default.
+
+Version 0.1.2 additionally preserves missing presence as explicit unknown
+intervals, including when deriving household occupancy. The training-readiness
+counter uses observed target coverage for the selected people rather than the
+age of an arbitrary archived sensor. This prevents old or missing tracker
+history from making a fresh installation appear ready prematurely.
