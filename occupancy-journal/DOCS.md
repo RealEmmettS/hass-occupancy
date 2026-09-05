@@ -43,6 +43,8 @@ extra_entities:
   attributes are retained. GPS coordinates and user IDs are excluded.
 - `collection_health`: source error and recovery transitions. An error does not
   create a fabricated occupancy reading. A stopped source remains visibly stale.
+- `forecast_status`: training state, usable-history span, publication coverage,
+  model identity, training duration and MQTT/listener health at each sample.
 
 Data lives in the add-on's `/data/journal.sqlite3` in compressed SQLite rows,
 with WAL transactions and per-operation closed connections. Capture times and

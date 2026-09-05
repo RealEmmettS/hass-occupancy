@@ -106,11 +106,23 @@ def sample():
     captured = now()
     errors = {}
     results = []
-    for kind, url, auth in [("forecast", FORECAST + "/api/forecast", False), ("observations", HA, True)]:
+    for kind, url, auth in [("forecast", FORECAST + "/api/forecast", False),
+                            ("observations", HA, True),
+                            ("forecast_status", FORECAST + "/api/status", False)]:
         try:
             value = get_json(url, auth)
             if kind == "observations":
                 value = select_states(value)
+            elif kind == "forecast_status":
+                # Persist training/collection context without copying arbitrary error strings.
+                value = {k: value.get(k) for k in (
+                    "status", "model_version", "source", "history", "days_until_training",
+                    "horizons_shipping", "people", "served_by", "model_kind", "best_baseline",
+                    "eta_models", "worker", "loaded_at", "last_collect", "last_predict",
+                    "last_train", "last_train_seconds", "next_train", "train_cadence",
+                    "training_started_at", "training_in_progress", "code")} | {
+                        "mqtt_connected": value.get("mqtt", {}).get("connected"),
+                        "listener_connected": value.get("listener", {}).get("connected")}
             results.append((kind, value, now()))
         except Exception as exc:
             # Exception strings can include URLs/headers. Record only a class and HTTP status.
@@ -148,12 +160,12 @@ def status():
         totals = {kind: count for kind, count in db.execute("SELECT kind,COUNT(*) FROM records GROUP BY kind")}
         span = db.execute("SELECT MIN(captured_at),MAX(captured_at) FROM records").fetchone()
         latest = {}
-        for kind in ("forecast", "observations", "collection_health"):
+        for kind in ("forecast", "observations", "forecast_status", "collection_health"):
             row = db.execute("SELECT captured_at,payload FROM records WHERE kind=? ORDER BY id DESC LIMIT 1", (kind,)).fetchone()
             latest[kind] = None if row is None else {"captured_at": row[0], "value": json.loads(gzip.decompress(row[1]))}
     with LOCK:
         runtime = dict(RUNTIME)
-    return {"version": "1.0.0", "retention_days": RETENTION, "sample_seconds": 60,
+    return {"version": "1.0.1", "retention_days": RETENTION, "sample_seconds": 60,
             "counts": totals, "first_record": span[0], "last_record": span[1],
             "bytes": sum(p.stat().st_size for p in DATA.glob("journal.sqlite3*")),
             "runtime": runtime, "latest": latest, "residents": RESIDENTS,
