@@ -54,10 +54,10 @@ const percent = (v: number) => `${(v * 100).toFixed(1)}%`
  */
 function changeSentence(change: NextChange): string {
   if (change.direction === null || change.at === null) {
-    return 'No change expected in the next 48 hours.'
+    return 'No arrival or departure time is predicted.'
   }
   const at = new Date(change.at)
-  if (Number.isNaN(at.getTime())) return 'No change expected in the next 48 hours.'
+  if (Number.isNaN(at.getTime())) return 'No arrival or departure time is predicted.'
 
   const clock = at.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
   const sameDay = at.toDateString() === new Date().toDateString()
@@ -79,9 +79,9 @@ function dayWord(at: Date): string {
 /** "in 3 h", "within the hour", from a moment rather than the raw crossing --
  *  so the chip and the sentence cannot disagree about the same event. */
 function untilLabel(at: string | null): string {
-  if (at === null) return 'steady'
+  if (at === null) return 'no estimate'
   const hours = (new Date(at).getTime() - Date.now()) / 3_600_000
-  if (!Number.isFinite(hours)) return 'steady'
+  if (!Number.isFinite(hours)) return 'no estimate'
   if (hours <= 1) return 'within the hour'
   return `in ${Math.round(hours)} h`
 }

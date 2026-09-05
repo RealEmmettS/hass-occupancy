@@ -102,7 +102,7 @@ export function Horizons({ served, kinds = {}, beatenBy = {} }: {
 
   const primary =
     modelled.length === 0
-      ? 'No horizon has beaten its baseline yet, so nothing is published'
+      ? 'No forecast horizons are currently published'
       : modelled.length === horizons.length
         ? `Every horizon is served by the model`
         : `Model serves ${modelled.length} of ${horizons.length} horizons`
@@ -135,7 +135,7 @@ export function Horizons({ served, kinds = {}, beatenBy = {} }: {
   const where = modelled.length ? `${summariseRuns(runs(modelled))}. ` : ''
   const rest = unserved
     ? `${modelled.length ? 'Elsewhere nothing' : 'Nothing'} is published: the `
-      + 'model did not beat its own baseline, so the sensor reads unknown and '
+      + 'model has not trained or passed its publication checks, so the sensor reads unknown and '
       + 'the forecast chart has a gap.'
     : ''
   const described = `${where}${split}${rest}`
