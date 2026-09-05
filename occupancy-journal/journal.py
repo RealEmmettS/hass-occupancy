@@ -7,6 +7,7 @@ import gzip
 import hashlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
+import html
 import os
 import re
 from pathlib import Path
@@ -165,7 +166,7 @@ def status():
             latest[kind] = None if row is None else {"captured_at": row[0], "value": json.loads(gzip.decompress(row[1]))}
     with LOCK:
         runtime = dict(RUNTIME)
-    return {"version": "1.0.3", "retention_days": RETENTION, "sample_seconds": 60,
+    return {"version": "1.0.4", "retention_days": RETENTION, "sample_seconds": 60,
             "counts": totals, "first_record": span[0], "last_record": span[1],
             "bytes": sum(p.stat().st_size for p in DATA.glob("journal.sqlite3*")),
             "runtime": runtime, "latest": latest, "residents": RESIDENTS,
@@ -203,7 +204,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.send(200, Path("/app/index.html").read_bytes(), "text/html; charset=utf-8")
         if path == "/api/status":
             return self.send(200, status())
-        if path == "/export.jsonl":
+        if path in ("/export.jsonl", "/export-view"):
+            preview = path == "/export-view"
             query = parse_qs(urlsplit(self.path).query)
             try:
                 days = max(1, min(RETENTION, int(query.get("days", ["7"])[0])))
@@ -213,15 +215,20 @@ class Handler(BaseHTTPRequestHandler):
             self.send_response(200)
             # Display plain text inside HA ingress; forced attachment navigation
             # can be blocked by browsers when initiated from the embedded panel.
-            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.send_header("Content-Type", "text/html; charset=utf-8" if preview else "text/plain; charset=utf-8")
             self.send_header("X-Content-Type-Options", "nosniff")
             self.send_header("Cache-Control", "no-store")
             self.end_headers()
             try:
+                if preview:
+                    self.wfile.write(b'<!doctype html><html lang="en"><meta charset="utf-8"><title>Occupancy history export</title><body><a href="./">Return to history</a><p>JSONL records below. Select and copy the records to save as a .jsonl file.</p><pre style="white-space:pre-wrap;overflow-wrap:anywhere">')
                 with connect() as db:
                     for identifier, captured, kind, compressed in db.execute("SELECT id,captured_at,kind,payload FROM records WHERE captured_at>=? ORDER BY id", (cutoff,)):
                         record = {"id": identifier, "captured_at": captured, "kind": kind, "payload": json.loads(gzip.decompress(compressed))}
-                        self.wfile.write(json.dumps(record, separators=(",", ":")).encode() + b"\n")
+                        line = json.dumps(record, separators=(",", ":"))
+                        self.wfile.write((html.escape(line) if preview else line).encode() + b"\n")
+                if preview:
+                    self.wfile.write(b'</pre></body></html>')
             except (BrokenPipeError, ConnectionResetError):
                 pass
             return
