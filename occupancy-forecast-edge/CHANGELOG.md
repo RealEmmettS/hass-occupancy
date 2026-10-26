@@ -24,6 +24,8 @@ rather than a rewrite.
 
 ### Fixed
 
+- Serialize prediction cycles so an older in-flight cycle cannot overwrite the newly trained forecast at the end of retraining.
+
 - Installing the add-on from the repository URL failed to build. The Ingress
   panel's compiled bundle was gitignored, so Supervisor's clone contained no
   `panel/dist` and the image build died at the `COPY` with a Docker checksum

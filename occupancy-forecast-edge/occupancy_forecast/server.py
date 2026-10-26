@@ -144,6 +144,7 @@ _state: dict = {
 }
 _broker = predict_mod.Broker()
 _train_lock = threading.Lock()
+_predict_lock = threading.Lock()
 # The worker's pulse: when it last STARTED a phase, and which one. Written by
 # the worker, read by the watchdog thread -- which has to be a separate thread,
 # because the failure being watched for is the worker being unable to run.
@@ -258,13 +259,17 @@ def _record_forecasts(results: list[dict]) -> None:
 
 
 def do_predict() -> list[dict]:
-    results = predict_mod.run_cycle(
-        _state["models"], _broker.client(), _state["source"], _state["eta_models"],
-        _state["out_routine"], _state.get("near_model"))
-    _state["forecast"] = results
-    _state["last_predict"] = dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
-    _record_forecasts(results)
-    return results
+    # Worker, manual API and training completion can request a cycle together.
+    # Load the model references INSIDE this lock: an old, slower cycle must
+    # finish publishing before the cycle using freshly trained models starts.
+    with _predict_lock:
+        results = predict_mod.run_cycle(
+            _state["models"], _broker.client(), _state["source"], _state["eta_models"],
+            _state["out_routine"], _state.get("near_model"))
+        _state["forecast"] = results
+        _state["last_predict"] = dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
+        _record_forecasts(results)
+        return results
 
 
 def _too_little_history() -> HTTPException | None:

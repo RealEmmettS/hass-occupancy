@@ -133,6 +133,37 @@ def test_near_verification_rejects_unconfigured_subject_and_invalid_lead():
         near_term.verification(None, "alice", minutes=5)
 
 
+def test_retrain_publication_cannot_be_overwritten_by_older_inflight_cycle(monkeypatch):
+    import threading
+    from concurrent.futures import ThreadPoolExecutor
+    from occupancy_forecast import server
+    first_entered, release_first, second_entered = (threading.Event() for _ in range(3))
+    monkeypatch.setitem(server._state, "near_model", None)
+    monkeypatch.setitem(server._state, "forecast", [])
+    monkeypatch.setattr(server._broker, "client", lambda: None)
+    monkeypatch.setattr(server, "_record_forecasts", lambda results: None)
+    def run(*args):
+        if args[-1] is None:
+            first_entered.set()
+            assert release_first.wait(5)
+            return [{"generation": "old"}]
+        second_entered.set()
+        return [{"generation": "new"}]
+    monkeypatch.setattr(server.predict_mod, "run_cycle", run)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        old = pool.submit(server.do_predict)
+        assert first_entered.wait(5)
+        server._state["near_model"] = {"new": True}
+        new = pool.submit(server.do_predict)
+        try:
+            assert not second_entered.wait(.1)
+        finally:
+            release_first.set()
+        assert old.result(timeout=5)[0]["generation"] == "old"
+        assert new.result(timeout=5)[0]["generation"] == "new"
+    assert server._state["forecast"] == [{"generation": "new"}]
+
+
 def test_server_records_withheld_attempts_and_exposes_verification(tmp_path, monkeypatch):
     from occupancy_forecast import server
     source = source_with_history(tmp_path, days=1)

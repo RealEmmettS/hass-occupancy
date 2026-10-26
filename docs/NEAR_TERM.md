@@ -33,6 +33,11 @@ until retraining. A failed near-term calculation returns explicit missing values
 while allowing the hourly forecast to continue. Explicit unknown current presence
 also suppresses predictions.
 
+Version 0.1.7 serializes prediction cycles from the scheduler, manual API and
+training completion. Model references are selected after acquiring the cycle
+lock, preventing an older in-flight calculation from overwriting a fresh model's
+forecast. Training itself continues separately and existing artifacts remain valid.
+
 ## Live evidence
 
 `GET api/forecast` includes `subjects[].near_term`, with issue time, exact target
