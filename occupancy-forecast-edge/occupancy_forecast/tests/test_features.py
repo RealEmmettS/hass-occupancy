@@ -217,7 +217,7 @@ def test_the_long_frame_says_which_lag_the_cross_subject_column_holds():
     than leaving the model to infer it from `horizon_h`.
     """
     long = features.long_frame(_wide_table())
-    for horizon, expected in ((24, 1.0), (25, 2.0)):
+    for horizon, expected in ((23, 1.0), (24, 2.0), (48, 3.0)):
         part = long[long[features.HORIZON_COLUMN] == float(horizon)]
         assert (part[features.OTHER_LAG_DAYS_COLUMN] == expected).all()
 
@@ -403,24 +403,23 @@ def test_the_zone_columns_and_home_partition_a_covered_slot():
     _zoned()
     slots = _slots(1)
     events = [("2026-04-30T23:00:00Z", "home"),
-              ("2026-05-01T00:10:00Z", "Supermarket"),
-              ("2026-05-01T00:20:00Z", "not_home")]
+              ("2026-04-30T23:57:00Z", "Supermarket"),
+              ("2026-04-30T23:59:00Z", "not_home")]
     frame = pd.DataFrame(index=slots)
     features._add_zones(frame, events, slots)
-    home = features.slot_fraction(events, slots, config.HOME_STATE)["frac"]
+    home = features.trailing_fraction(events, slots, config.HOME_STATE)["frac"]
 
     total = home.iloc[0] + sum(frame[c].iloc[0] for c in features.zone_columns())
     assert total == 1.0
-    # Ten of the thirty minutes in the zone, ten away from it and unaccounted.
-    assert frame["zone_market"].iloc[0] == 1 / 3
-    assert frame["zone_other"].iloc[0] == 1 / 3
+    assert frame["zone_market"].iloc[0] == 2 / 5
+    assert frame["zone_other"].iloc[0] == 1 / 5
 
 
 def test_half_a_slot_in_a_zone_is_a_half():
     _zoned()
     slots = _slots(1)
     events = [("2026-04-30T23:00:00Z", "Alice Office"),
-              ("2026-05-01T00:15:00Z", "not_home")]
+              ("2026-04-30T23:57:30Z", "not_home")]
     frame = pd.DataFrame(index=slots)
     features._add_zones(frame, events, slots)
     assert frame["zone_alice_office"].iloc[0] == 0.5

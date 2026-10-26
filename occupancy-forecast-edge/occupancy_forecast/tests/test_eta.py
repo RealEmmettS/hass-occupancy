@@ -75,3 +75,19 @@ def test_it_is_the_speed_doing_the_work_and_not_a_lookup_failing():
 def test_somebody_already_home_still_gets_no_eta():
     """The older of the two refusals, and it must survive the new one."""
     assert eta.current_row(_distance_trace([0.2] * 21), "alice") is None
+
+
+def test_feet_and_metres_produce_the_same_arrival_features():
+    from occupancy_forecast import config
+    from .conftest import settings
+    km = [30.0 - i for i in range(21)]
+    metric = eta.current_row(_distance_trace(km), "alice")
+    config.configure(settings(units={"sensor.home_alice_distance": "ft"}))
+    feet = eta.current_row(_distance_trace([v / .3048 for v in km]), "alice")
+    pd.testing.assert_frame_equal(metric, feet)
+
+
+def test_eta_artifacts_with_unversioned_distance_units_are_not_loaded(tmp_path):
+    import pickle
+    (tmp_path / "eta_alice.pkl").write_bytes(pickle.dumps({"model": None}))
+    assert eta.load_models(tmp_path) == {}

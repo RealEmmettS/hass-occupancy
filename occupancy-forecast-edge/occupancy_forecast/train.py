@@ -61,7 +61,7 @@ from . import baseline, config, evaluate, features, log
 
 _log = log.get(__name__)
 
-MODEL_VERSION = "0.4.1"
+MODEL_VERSION = "0.5.0"
 
 # Minimum Brier skill over the best baseline for a horizon to be published at
 # all. Below this the model is not adding anything worth the extra moving
@@ -476,16 +476,16 @@ def _dedicated_estimator() -> Pipeline:
     HistGradientBoosting rather than XGBoost because it handles the NaNs that
     survive the feature build natively, and one fewer dependency.
 
-    Capacity is deliberately low -- see the module docstring. `max_iter` 200 with
-    15 leaves and a 50-sample leaf floor is roughly half of what suits a table
-    with 50x more independent observations. **Unchanged from the design that
-    measured 0.0437 at +1 h**, which is the number this family exists to keep.
+    Seven leaves and stronger shrinkage limit variance on short archives.
+    Candidate selection uses earlier temporal folds and a reserved later period;
+    random internal early stopping must not create a second, shuffled split.
     """
     return Pipeline([
         ("encode", _encoder()),
         ("model", HistGradientBoostingRegressor(
-            max_iter=200, learning_rate=0.05, max_leaf_nodes=15,
-            min_samples_leaf=50, l2_regularization=1.0, random_state=0,
+            max_iter=120, learning_rate=0.05, max_leaf_nodes=7,
+            min_samples_leaf=75, l2_regularization=10.0, random_state=0,
+            early_stopping=False,
         )),
     ])
 
@@ -508,7 +508,7 @@ def _pooled_estimator() -> Pipeline:
         ("model", HistGradientBoostingRegressor(
             max_iter=300, learning_rate=0.05, max_leaf_nodes=MAX_LEAF_NODES,
             min_samples_leaf=MIN_SAMPLES_LEAF, l2_regularization=1.0,
-            random_state=0,
+            random_state=0, early_stopping=False,
         )),
     ])
 
@@ -721,7 +721,8 @@ def _candidate(horizon: int, kind: str, scored: pd.DataFrame, target: str,
         shrink_frame, shrink_frame[wide_column].to_numpy(), horizon)
 
     # Out of fold, so the same rows the headline Brier was computed on.
-    squared = (scored["p"] - scored[target]) ** 2
+    squared = (scored["p"].clip(evaluate.EPS, 1 - evaluate.EPS)
+               - (scored[target] >= evaluate.HOME_THRESHOLD).astype(float)) ** 2
     by_subject = {str(name): round(float(part.mean()), 6)
                   for name, part in squared.groupby(scored["subject"])
                   if part.notna().any()}

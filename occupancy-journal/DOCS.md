@@ -78,3 +78,11 @@ Run the journal's standard-library tests with:
 ```sh
 python -m unittest discover -s occupancy-journal/tests -v
 ```
+
+
+Version 1.0.5 adds recorded calendar days, the sample count against 1,440 expected
+minute samples in the last 24 hours, and current agreement across known person
+trackers. Unknown trackers are excluded from the agreement comparison. A missing
+configured person is shown explicitly. Agreement is about home versus away and
+is not proof of physical presence. History and original forecast revisions are
+preserved during the update.

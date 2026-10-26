@@ -67,6 +67,21 @@ class JournalTests(unittest.TestCase):
         with journal.connect() as db:
             self.assertEqual(db.execute("SELECT COUNT(*) FROM records").fetchone()[0], 0)
 
+    def test_coverage_and_tracker_disagreement_ignore_unknown_trackers(self):
+        observation = {"person.example": {"state": "home", "attributes": {
+            "device_trackers": ["device_tracker.a", "device_tracker.b", "device_tracker.c"]}},
+            "device_tracker.a": {"state": "home"},
+            "device_tracker.b": {"state": "not_home"},
+            "device_tracker.c": {"state": "unknown"}}
+        with journal.connect() as db:
+            journal.append(db, "observations", observation, journal.now())
+        with patch.object(journal, "RESIDENTS", {"Example": "person.example"}):
+            result = journal.status()
+        self.assertEqual(result["observation_history"]["samples_last_24h"], 1)
+        self.assertEqual(result["observation_history"]["calendar_days"], 1)
+        self.assertEqual(result["tracker_checks"]["Example"], {
+            "available": 2, "disagree": True, "entity_present": True})
+
 
 if __name__ == "__main__":
     unittest.main()

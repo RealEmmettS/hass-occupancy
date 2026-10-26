@@ -390,6 +390,9 @@ def test_verification_carries_every_field_the_was_it_right_card_reads(tmp_path):
         def seeded_states(self, entity_id, start, stop=None, seed_days=14):
             return self.store.seeded_states(entity_id, start, stop, seed_days)
 
+        def states(self, entity_id, start, stop=None):
+            return self.store.states(entity_id, start, stop)
+
     now = dt.datetime.now(dt.timezone.utc)
     store.append([("person.alice",
                    int((now - dt.timedelta(days=5)).timestamp() * 1000), "home")])

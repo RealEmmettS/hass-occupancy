@@ -167,7 +167,8 @@ def traces(source, subject: str, start: str, stop: str | None = None) -> pd.Data
     if not dist:
         return pd.DataFrame(columns=["distance_km", "direction"])
     frame = pd.DataFrame(
-        {"distance_km": [v / 1000.0 for _, v in dist]},
+        {"distance_km": [v * config.distance_scale(distance_entity) / 1000.0
+                         for _, v in dist]},
         index=pd.to_datetime([t for t, _ in dist], utc=True, format="ISO8601"),
     ).sort_index()
     frame = frame[~frame.index.duplicated(keep="last")]
@@ -317,7 +318,7 @@ def train_one(source, subject: str, start: str | None = None,
     # Baseline: constant speed, the implied km/h of the training half. This is
     # the "distance divided by how fast we usually get home" answer, and the
     # model has to beat it or it is not earning its keep.
-    fold_mae, base_mae, per_fold = [], [], []
+    fold_mae, base_mae, per_fold, errors = [], [], [], []
     for fold in folds:
         tr, te = samples.iloc[fold.train_idx], samples.iloc[fold.test_idx]
         kmh = (tr["distance_km"] / (tr["minutes_to_home"] / 60)).median()
@@ -325,6 +326,7 @@ def train_one(source, subject: str, start: str | None = None,
         pred = predict_minutes(model, te)
         base = np.clip(te["distance_km"] / kmh * 60, 0, MAX_LEAD_MIN)
         truth = te["minutes_to_home"].to_numpy()
+        errors.extend(np.abs(pred - truth))
         fold_mae.append(float(np.mean(np.abs(pred - truth))))
         base_mae.append(float(np.mean(np.abs(base - truth))))
         per_fold.append({"n": int(len(te)), "mae_min": fold_mae[-1],
@@ -335,8 +337,7 @@ def train_one(source, subject: str, start: str | None = None,
     p = evaluate.sign_test(beat, len(folds))
 
     model = _fit(samples)
-    pred_all = predict_minutes(model, samples)
-    err = np.abs(pred_all - samples["minutes_to_home"].to_numpy())
+    err = np.asarray(errors)  # held-out errors, never training residuals
     home = (frame["distance_km"] * 1000 < ARRIVED_M)
 
     metrics = EtaMetrics(
@@ -365,7 +366,7 @@ def save(model, metrics: EtaMetrics, models_dir: Path = MODELS_DIR) -> Path:
     tmp = path.with_suffix(".pkl.tmp")
     with tmp.open("wb") as fh:
         pickle.dump({"model": model, "subject": metrics.subject,
-                     "features": FEATURES, "metrics": asdict(metrics)}, fh)
+                     "features": FEATURES, "distance_units": "km-v1", "metrics": asdict(metrics)}, fh)
     tmp.replace(path)
     return path
 
@@ -376,7 +377,9 @@ def load_models(models_dir: Path = MODELS_DIR) -> dict[str, dict]:
         path = models_dir / f"eta_{subject}.pkl"
         if path.exists():
             with path.open("rb") as fh:
-                out[subject] = pickle.load(fh)
+                artifact = pickle.load(fh)
+                if artifact.get("distance_units") == "km-v1":
+                    out[subject] = artifact
     return out
 
 

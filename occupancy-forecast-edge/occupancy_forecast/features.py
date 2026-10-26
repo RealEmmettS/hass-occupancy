@@ -39,7 +39,7 @@ from . import config
 # Daily lag offsets, in days, of the TARGET slot.
 #
 # 3 and 21 are here for the LONG horizons specifically. `safe_daily_lags` throws
-# away every lag `k` with `24k < horizon`, so past +25 h the 1-day lag is gone
+# away every lag `k` with `24k <= horizon`, so past +25 h the 1-day lag is gone
 # and the band that was left with three legal anchors now has five. Both sit
 # inside the 45-day warm-up `evaluate.MIN_TRAIN_DAYS` already pays for, so they
 # cost no folds. 28 would not -- see CLIMATOLOGY_WEEKS.
@@ -242,14 +242,15 @@ def safe_daily_lags(horizon: int) -> tuple[int, ...]:
     """Daily lags of the target slot that do not reach past the origin.
 
     `tgt{h}h_lag{k}d` is `home_frac` at `t + h - 24k`. That is only observable
-    at prediction time when `24k >= h`. At a 36 h horizon the target's
+    at prediction time when `24k > h`. At a 36 h horizon the target's
     "yesterday" is twelve hours into the *future* -- including it would train a
     model that cannot be served, and would score beautifully doing it.
 
     This is the single easiest way to leak in this problem, so the gate lives in
     one function and `test_features.py` asserts it.
     """
-    return tuple(k for k in DAILY_LAGS if 24 * k >= horizon)
+    # Equality would read the not-yet-completed origin slot.
+    return tuple(k for k in DAILY_LAGS if 24 * k > horizon)
 
 
 def wide_climatology_column(horizon: int) -> str:
@@ -283,7 +284,7 @@ def slot_climatology_days(horizon: int) -> tuple[int, ...]:
     below +25 h, 13 above it. That is still three times what the same-weekday
     climatology gets.
     """
-    return tuple(k for k in range(1, SLOT_CLIMATOLOGY_DAYS + 1) if 24 * k >= horizon)
+    return tuple(k for k in range(1, SLOT_CLIMATOLOGY_DAYS + 1) if 24 * k > horizon)
 
 
 def slot_climatology_column(horizon: int) -> str:
@@ -617,8 +618,10 @@ def slot_fraction(events: list[tuple[str, str]], slots: pd.DatetimeIndex,
     order = np.argsort(times.asi8, kind="stable")
     times, values = times[order], values[order]
 
-    boundaries = slots.append(
-        pd.DatetimeIndex([slots[-1] + pd.Timedelta(minutes=minutes)], tz="UTC"))
+    # Include EVERY end: trailing five-minute windows on a thirty-minute grid
+    # are disjoint. Counting the gaps would give coverage > 1 and future data.
+    ends = slots + pd.Timedelta(minutes=minutes)
+    boundaries = slots.union(ends)
 
     # Every boundary is in the timeline, so each segment lies inside one slot.
     marks = times.union(boundaries)
@@ -627,9 +630,10 @@ def slot_fraction(events: list[tuple[str, str]], slots: pd.DatetimeIndex,
 
     seconds = np.diff(marks.asi8) / 1e9
     seg_value = held[:-1]
-    seg_slot = np.searchsorted(boundaries.asi8, marks.asi8[:-1], side="right") - 1
+    seg_slot = np.searchsorted(slots.asi8, marks.asi8[:-1], side="right") - 1
 
-    keep = (seg_slot >= 0) & (seg_slot < n) & ~np.isnan(seg_value)
+    keep = ((seg_slot >= 0) & (seg_slot < n) & ~np.isnan(seg_value)
+            & (marks.asi8[:-1] < ends.asi8[np.clip(seg_slot, 0, n - 1)]))
     if not keep.any():
         return empty
 
@@ -642,6 +646,38 @@ def slot_fraction(events: list[tuple[str, str]], slots: pd.DatetimeIndex,
                      out=np.full(n, np.nan), where=denominator > 0)
     frac[coverage < config.MIN_SLOT_COVERAGE] = np.nan
     return pd.DataFrame({"frac": frac, "coverage": coverage}, index=slots)
+
+
+def trailing_fraction(events: list[tuple[str, str]], slots: pd.DatetimeIndex,
+                      match: str) -> pd.DataFrame:
+    """Causal, debounced origin state, shared by training and live nowcasting."""
+    window = config.ORIGIN_WINDOW_MINUTES
+    result = slot_fraction(events, slots - pd.Timedelta(minutes=window), match, window)
+    result.index = slots
+    # An explicit unknown at the issue time invalidates current presence even
+    # if most of the trailing window preceded that outage.
+    if events and len(slots):
+        times = pd.to_datetime([t for t, _ in events], utc=True, format="ISO8601")
+        order = np.argsort(times.asi8, kind="stable")
+        states = np.asarray([v for _, v in events], dtype=object)[order]
+        idx = np.searchsorted(times.asi8[order], slots.asi8, side="right") - 1
+        known = np.array([v is not None and str(v).strip().lower() not in
+                          ("", "unknown", "unavailable") for v in states])
+        valid = (idx >= 0) & known[np.clip(idx, 0, None)]
+        result.loc[~valid, "frac"] = np.nan
+        result.loc[~valid, "coverage"] = 0.0
+    return result
+
+
+def origin_observability(event_times: pd.DatetimeIndex,
+                         slots: pd.DatetimeIndex) -> np.ndarray:
+    """At issue time, only the preceding capture heartbeat can be known."""
+    if not len(event_times) or not len(slots):
+        return np.zeros(len(slots), dtype=bool)
+    times = event_times.sort_values().asi8
+    idx = np.searchsorted(times, slots.asi8, side="right") - 1
+    age = slots.asi8 - times[np.clip(idx, 0, None)]
+    return (idx >= 0) & (age <= config.MAX_SILENCE_H * 3600 * 1e9)
 
 
 def observability(event_times: pd.DatetimeIndex, slots: pd.DatetimeIndex,
@@ -752,15 +788,18 @@ def minutes_in_state(events: list[tuple[str, str]], slots: pd.DatetimeIndex) -> 
 
 def _subject_frame(source, subject: config.Subject, start: str, stop: str | None,
                    slots: pd.DatetimeIndex,
-                   observable: np.ndarray | None = None) -> pd.DataFrame:
+                   observable: np.ndarray | None = None,
+                   origin_observed: np.ndarray | None = None) -> pd.DataFrame:
     """One subject's presence, on the grid."""
     events = presence_events(source, subject, start, stop)
     occupancy = slot_fraction(events, slots, config.HOME_STATE)
+    origin = trailing_fraction(events, slots, config.HOME_STATE)
 
     frame = pd.DataFrame(index=slots)
     frame["subject"] = subject.slug
     frame["home_frac"] = occupancy["frac"].to_numpy()
-    frame["coverage"] = occupancy["coverage"].to_numpy()
+    frame["state_now"] = origin["frac"].to_numpy()
+    frame["coverage"] = origin["coverage"].to_numpy()
     frame["minutes_in_state"] = minutes_in_state(events, slots)
 
     # People only. The house is a group whose state collapses to home/not_home,
@@ -775,14 +814,13 @@ def _subject_frame(source, subject: config.Subject, start: str, stop: str | None
     _add_next_alarm(frame, source, subject, start, stop, slots)
 
     if observable is not None:
-        # Unobserved is not "away", and it is not "home" either.
-        # The house's zone columns do not exist yet -- `build` fills them from
-        # the people, who have already been blanked here.
-        blank = [c for c in ("home_frac", "minutes_in_state",
+        frame.loc[~observable, "home_frac"] = np.nan
+    if origin_observed is not None:
+        blank = [c for c in ("state_now", "minutes_in_state",
                              *zone_columns(), *PROXIMITY_COLUMNS)
                  if c in frame.columns]
-        frame.loc[~observable, blank] = np.nan
-        frame.loc[~observable, "coverage"] = 0.0
+        frame.loc[~origin_observed, blank] = np.nan
+        frame.loc[~origin_observed, "coverage"] = 0.0
     return frame
 
 
@@ -899,7 +937,7 @@ def _add_proximity(frame: pd.DataFrame, source, subject: config.Subject,
     metres = numeric_on_grid(
         source.numeric(distance_entity, start, stop),
         slots, config.DISTANCE_STALE_MIN)
-    frame["distance_km"] = metres / 1000.0
+    frame["distance_km"] = metres * config.distance_scale(distance_entity) / 1000.0
 
     # The grid is regular, so a positional shift IS a fixed time offset here --
     # unlike the target join, which crosses gaps. One slot is GRID_MINUTES.
@@ -909,8 +947,8 @@ def _add_proximity(frame: pd.DataFrame, source, subject: config.Subject,
 
     if subject.direction_entity:
         events = source.seeded_states(subject.direction_entity, start, stop)
-        frame["dir_towards"] = slot_fraction(events, slots, "towards")["frac"].to_numpy()
-        frame["dir_away"] = slot_fraction(events, slots, "away_from")["frac"].to_numpy()
+        frame["dir_towards"] = trailing_fraction(events, slots, "towards")["frac"].to_numpy()
+        frame["dir_away"] = trailing_fraction(events, slots, "away_from")["frac"].to_numpy()
     else:
         # No Proximity integration: derive direction from the sign of the
         # distance delta, which is all `direction_of_travel` is anyway.
@@ -969,9 +1007,9 @@ def _add_zones(frame: pd.DataFrame, events: list[tuple[str, str]],
     """
     resolved = _resolve_zone_events(events, config.zone_name_map())
     for zone in config.ZONES:
-        frame[f"zone_{zone.slug}"] = slot_fraction(
+        frame[f"zone_{zone.slug}"] = trailing_fraction(
             resolved, slots, zone.entity_id)["frac"].to_numpy()
-    frame["zone_other"] = slot_fraction(
+    frame["zone_other"] = trailing_fraction(
         resolved, slots, ZONE_OTHER)["frac"].to_numpy()
 
 
@@ -1263,7 +1301,7 @@ def _add_cross_subject(table: pd.DataFrame) -> pd.DataFrame:
     nothing about where they will be. Reading the partner's state at the target
     slot would be reading the answer.
     """
-    wide = table.pivot_table(index="time", columns="subject", values="home_frac",
+    wide = table.pivot_table(index="time", columns="subject", values="state_now",
                              aggfunc="first")
     for slug in config.all_slugs():
         if slug not in wide.columns:
@@ -1347,10 +1385,16 @@ def build(source, start: str | None = None, stop: str | None = None) -> pd.DataF
 
     # One observability mask for everyone, from the trackers that report
     # continuously. See features.observability.
-    observable = observability(_liveness(source, start, stop), slots)
+    liveness = _liveness(source, start, stop)
+    observable = observability(liveness, slots)
+    # An unfinished target cannot be used as a label, even if its last known
+    # state can be carried forward. Origin features remain usable for serving.
+    observable &= (slots + pd.Timedelta(minutes=config.GRID_MINUTES)) <= stop_ts
+    origin_observed = origin_observability(liveness, slots)
 
     frames = {
-        subject.slug: _subject_frame(source, subject, start, stop, slots, observable)
+        subject.slug: _subject_frame(source, subject, start, stop, slots, observable,
+                                     origin_observed)
         for subject in config.SUBJECTS
     }
 
@@ -1372,8 +1416,6 @@ def build(source, start: str | None = None, stop: str | None = None) -> pd.DataF
 
     local = _localise(table["time"])
     table = pd.concat([table, _cyclical(local)], axis=1)
-
-    table["state_now"] = table["home_frac"]
 
     table = _add_cross_subject(table)
     table = _add_horizon_columns(table)

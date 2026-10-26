@@ -363,7 +363,7 @@ def test_a_forecast_is_recorded_on_the_slot_it_was_about(monkeypatch):
 
     server._record_forecasts([_result({6: 0.8})])
 
-    (subject, target_ms, horizon, p), = store.rows
+    (subject, target_ms, horizon, p, issued, current, version), = store.rows
     assert (subject, horizon, p) == ("alice", 6, 0.8)
     assert dt.datetime.fromtimestamp(target_ms / 1000, dt.timezone.utc) == \
         dt.datetime(2026, 9, 3, 2, 30, tzinfo=dt.timezone.utc)

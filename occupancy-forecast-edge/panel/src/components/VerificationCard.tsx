@@ -36,7 +36,7 @@ const DAY_OPTIONS = [
   { value: '30', label: 'last 30 days' },
 ]
 
-const pretty = (slug: string) => slug.charAt(0).toUpperCase() + slug.slice(1)
+const pretty = (slug: string) => slug.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
 
 export function VerificationCard({ status, defaultHorizon = 6 }: {
   status: Status | null
@@ -61,6 +61,7 @@ export function VerificationCard({ status, defaultHorizon = 6 }: {
     if (!chosen) return
     let live = true
     setData(null)
+    setError(null)
     getVerification(chosen, horizon, Number(days))
       .then((v) => { if (live) setData(v) })
       .catch((e: Error) => { if (live) setError(e.message) })
@@ -84,12 +85,7 @@ export function VerificationCard({ status, defaultHorizon = 6 }: {
   })()
 
   return (
-    /* No subtitle. That this is the only score measured on the serving path
-       rather than at training time is the whole reason the card exists, and it
-       is written out at length in DOCS.md under "Was it right?" -- which is
-       where a reader who has not met the distinction should meet it, not on a
-       card they see every time they open the panel. */
-    <Card title="Was it right?">
+    <Card title="Was it right?" subtitle="Published predictions compared with completed observations. Lower probability error is better.">
       {/* The same control rows the Data tab's cards use, rather than a bare
           pair of selects: a `Select` is wide enough to need a line of its own,
           which is exactly what `Row control` is for. */}
@@ -104,7 +100,7 @@ export function VerificationCard({ status, defaultHorizon = 6 }: {
             value={chosen}
             onChange={setSubject}
             options={subjects.length
-              ? subjects.map((s) => ({ value: s, label: s === 'house' ? 'House' : pretty(s) }))
+              ? subjects.map((s) => ({ value: s, label: s === 'house' ? 'Tracked residents' : pretty(s) }))
               : [{ value: '', label: '— no subjects configured —' }]}
           />
         }
@@ -123,6 +119,15 @@ export function VerificationCard({ status, defaultHorizon = 6 }: {
 
       <HorizonSlider value={horizonInput} onChange={setHorizonInput}
                      summary={sliderSummary} />
+
+      {data?.available && <div className="verification-stats">
+        <div><span>Probability error</span><strong>{data.brier?.toFixed(3) ?? '—'}</strong><small>Brier score · lower is better</small></div>
+        <div><span>Forecast coverage</span><strong>{data.slots ? `${Math.round(100 * data.served / data.slots)}%` : '—'}</strong><small>{data.scored} completed observations scored</small></div>
+        <div><span>Compared with staying put</span><strong>{data.skill_vs_persistence_pct == null ? 'Collecting' : `${Math.abs(data.skill_vs_persistence_pct).toFixed(0)}% ${data.skill_vs_persistence_pct >= 0 ? 'better' : 'worse'}`}</strong><small>{data.comparison_scored ? `Same ${data.comparison_scored} forecasts · issue-time baseline` : 'Comparison starts with this update'}</small></div>
+      </div>}
+      {data?.available && data.lead_minutes_min != null && <p className="verification-note">
+        These forecasts were issued {Math.round(data.lead_minutes_min)}–{Math.round(data.lead_minutes_max ?? data.lead_minutes_min)} minutes before their target slot. Only completed slots are scored.
+      </p>}
 
       {error ? <p className="empty">{error}</p>
         : !data ? <p className="empty">Loading…</p>

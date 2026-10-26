@@ -172,8 +172,8 @@ def current_rows(source, at: pd.Timestamp | None = None) -> pd.DataFrame:
     """
     at = at or pd.Timestamp.now(tz="UTC")
     start = at - pd.Timedelta(days=LOOKBACK_DAYS)
-    table = features.build(source, start=start.strftime("%Y-%m-%dT%H:%M:%SZ"))
-    table = table.dropna(subset=["state_now"])
+    table = features.build(source, start=start.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                           stop=at.isoformat())
     if table.empty:
         raise RuntimeError(
             "no row with a usable state_now in the last "
@@ -317,8 +317,9 @@ def predict_rows(models: dict[int, dict], rows: pd.DataFrame,
     now = dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
     results = []
     for _, row in rows.iterrows():
+        known = pd.notna(row["state_now"])
         curve = {h: round(float(np.clip(v, 0.0, 1.0)), 4)
-                 for h, v in _model_curve(models, row).items()
+                 for h, v in (_model_curve(models, row) if known else {}).items()
                  if v is not None and not np.isnan(v)}
 
         # A horizon that ships but produced nothing is a hole for a different
@@ -331,7 +332,7 @@ def predict_rows(models: dict[int, dict], rows: pd.DataFrame,
         missing = sorted(h for h in config.HORIZONS_H
                          if (models.get(h) or {}).get("metrics", {}).get("ships")
                          and h not in curve)
-        if missing:
+        if missing and known:
             _log.warning(
                 "%s: %d shipping horizon(s) produced no value and were not "
                 "published (%s) -- a feature the model wants is missing from "
@@ -348,7 +349,7 @@ def predict_rows(models: dict[int, dict], rows: pd.DataFrame,
             # `predict_rows` is called with hand-built frames in the tests.
             "current_at": row.get("current_at"),
             "predicted_at": now,
-            "current": round(float(row["state_now"]), 4),
+            "current": round(float(row["state_now"]), 4) if known else None,
             # This person's routine for TODAY, or None. Not a forecast and
             # not from the model: it is what their own history says about this
             # weekday, calibrated, and it carries the counts and the spread
@@ -368,7 +369,7 @@ def predict_rows(models: dict[int, dict], rows: pd.DataFrame,
                 row, curve, going_home=True,
                 threshold=config.ARRIVAL_THRESHOLD,
                 min_hours=config.CROSSING_MIN_HOURS),
-            "eta_minutes": (etas or {}).get(row["subject"]),
+            "eta_minutes": (etas or {}).get(row["subject"]) if known else None,
             "model_version": train.MODEL_VERSION,
         }
         # One answer built from both: the crossing says a change is coming, the
@@ -640,7 +641,8 @@ def publish(results: list[dict], client: mqtt.Client) -> None:
         state = {f"p_home_{h}h": (None if (v := result["curve"].get(h)) is None
                                   else round(100 * v, 1))
                  for h in config.HORIZONS_H}
-        state["current"] = round(100 * result["current"], 1)
+        state["current"] = (round(100 * result["current"], 1)
+                            if result["current"] is not None else None)
         out = result.get("out") or {}
         at = pd.Timestamp(result["predicted_at"])
         state["out_today"] = (
@@ -717,7 +719,8 @@ def main() -> None:
     try:
         for result in run_cycle(models, client):
             served = f"{len(result['curve'])}/{len(config.HORIZONS_H)} horizons"
-            print(f"{result['subject']:<8} now {result['current']:.2f}  "
+            current = "unknown" if result["current"] is None else f"{result['current']:.2f}"
+            print(f"{result['subject']:<8} now {current}  "
                   f"curve {result['curve']}  serving {served}", flush=True)
     finally:
         client.loop_stop()

@@ -48,3 +48,22 @@ comparison is meant to be about the code: with stable on `store` and edge on
 
 Identical to stable — see [its
 documentation](https://github.com/MartvanMale/hass-occupancy/blob/main/occupancy-forecast/DOCS.md).
+
+
+## Accuracy evaluation and model 0.5.0
+
+Training now uses the same trailing five-minute current-state features as live
+prediction. Proximity units are normalized and unfinished slots are excluded
+from historical lags. Existing model artifacts require retraining after this
+update; use **Retrain now** after the add-on starts.
+
+The accuracy card shows probability error, forecast coverage, and a comparison
+with staying in the state observed when that same forecast was issued. That
+comparison accumulates from this version onward; older records retain their
+original predictions without invented baseline values. Only completed, observed
+slots are scored. The named horizon is anchored to the half-hour grid; the card
+also reports actual lead time for records with issue timestamps.
+
+See [the evaluation guide](https://github.com/RealEmmettS/hass-occupancy/blob/main/docs/EVALUATING_ACCURACY.md)
+for the distinction between backtests and published predictions, candidate
+selection, uncertainty, missing data, and conditional arrival ETA.

@@ -187,7 +187,9 @@ export interface SubjectForecast {
   subject: string
   /** Fraction of the last five minutes spent at home -- an OBSERVATION, not a
    *  prediction. Shown beside the forecast because the comparison is the point. */
-  current: number
+  current: number | null
+  current_at?: string | null
+  model_version?: string | null
   /** The slot the horizons are measured from — NOT `predicted_at`, which can be
    *  up to half an hour later. Anything putting clock times on the forecast axis
    *  must anchor here or be wrong by up to a slot. */
@@ -387,6 +389,13 @@ export type Verification = Explorable<{
   scored: number
   brier: number | null
   mae: number | null
+  comparison_scored: number
+  comparison_brier: number | null
+  persistence_brier: number | null
+  skill_vs_persistence_pct: number | null
+  lead_minutes_min: number | null
+  lead_minutes_max: number | null
+  model_versions: string[]
   retention_days: number
   summary: string
 }>

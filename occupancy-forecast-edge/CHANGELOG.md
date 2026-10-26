@@ -1,7 +1,10 @@
 # Changelog — Edge
 
 This is the **queue**, not a release history. Entries accumulate under
-`## Unreleased` as work lands on edge; `scripts/promote.sh` is the moment they
+`## Unreleased
+
+The causal-feature and accuracy work was promoted to stable 0.1.4. See
+`../docs/EVALUATING_ACCURACY.md` for the evaluation contract.` as work lands on edge; `scripts/promote.sh` is the moment they
 move into `../occupancy-forecast/CHANGELOG.md` under a stable version number and
 this section is emptied again.
 

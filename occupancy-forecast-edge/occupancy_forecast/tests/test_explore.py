@@ -526,7 +526,7 @@ def _slots(days: int):
     """The exact grid `verification` will build, so a test can write a forecast
     onto a slot rather than near one."""
     stop = pd.Timestamp.now(tz="UTC")
-    return features.grid(stop - pd.Timedelta(days=days), stop)
+    return features.grid(stop - pd.Timedelta(days=days), stop.floor("30min") - pd.Timedelta(minutes=30))
 
 
 @pytest.fixture
@@ -536,6 +536,8 @@ def home_all_week(store):
     forecast's, which is what these tests are about."""
     now = dt.datetime.now(dt.timezone.utc)
     store.append([("person.alice", _ms(now - dt.timedelta(days=30)), "home")])
+    store.append([("person.alice", _ms(t), "home") for t in
+                  pd.date_range(now - dt.timedelta(days=3), now, freq="30min")])
     return store
 
 
@@ -597,6 +599,32 @@ def test_before_anything_has_come_due_it_says_so(home_all_week):
                                   "alice", 6, days=2)
     assert result["available"] is False
     assert "come due" in result["reason"]
+
+
+def test_persistence_comparison_uses_identical_forecasts_and_completed_slots(home_all_week):
+    slots = _slots(2)
+    for i, t in enumerate(slots[-4:]):
+        target = int(t.timestamp() * 1000)
+        home_all_week.append_forecasts([("alice", target, 6, .75,
+                                        target - 350 * 60000, 0.0 if i < 2 else None, "new")])
+    unfinished = pd.Timestamp.now(tz="UTC").floor("30min")
+    home_all_week.append_forecasts([("alice", int(unfinished.timestamp() * 1000), 6, 0.0)])
+    result = explore.verification(FakeSource(home_all_week), make_settings(), "alice", 6, days=2)
+    assert result["comparison_scored"] == 2
+    assert result["comparison_brier"] == pytest.approx(.0625)
+    assert result["persistence_brier"] == 1.0
+    assert result["skill_vs_persistence_pct"] == pytest.approx(93.75)
+    assert result["lead_minutes_min"] == 350
+    assert unfinished.isoformat() not in {p["t"] for p in result["points"]}
+
+
+def test_capture_outage_cannot_count_as_a_correct_forecast(store):
+    slots = _slots(2)
+    store.append([("person.alice", _ms(slots[0] - pd.Timedelta(days=20)), "home")])
+    store.append_forecasts([("alice", _ms(t), 6, 1.0) for t in slots])
+    result = explore.verification(FakeSource(store), make_settings(), "alice", 6, days=2)
+    assert result["scored"] == 0
+    assert result["brier"] is None
 
 
 def test_a_forecast_about_the_future_is_not_scored_yet(home_all_week):

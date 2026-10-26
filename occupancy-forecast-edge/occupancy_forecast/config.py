@@ -51,6 +51,10 @@ from pathlib import Path
 GRID_MINUTES = 30
 SLOTS_PER_DAY = 24 * 60 // GRID_MINUTES  # 48
 
+# Origin features look BACK from the issue time; targets look forward. Keep the
+# same debounce window in training and serving.
+ORIGIN_WINDOW_MINUTES = 5
+
 # A slot needs this much of its duration observed, or it is NaN rather than a
 # guess. Costs ~1% of slots.
 MIN_SLOT_COVERAGE = 0.5
@@ -424,6 +428,18 @@ def zone_name_map() -> dict[str, str]:
 # `services: ["mqtt:need"]`, and run.sh exports them. There is deliberately NO
 # host default: the original defaulted to a specific LAN address, so an unset
 # variable silently dialled somebody else's broker instead of failing.
+
+def distance_scale(entity_id: str) -> float:
+    """Convert an archived distance reading to metres, without rewriting history.
+
+    Synthetic distances and legacy sources without unit metadata use metres.
+    Unknown explicit units must not silently become metres.
+    """
+    units = SETTINGS.units if SETTINGS is not None else {}
+    unit = str(units.get(entity_id, "m")).strip().lower()
+    return {"m": 1.0, "km": 1000.0, "ft": 0.3048, "mi": 1609.344,
+            "yd": 0.9144, "cm": 0.01, "mm": 0.001}.get(unit, float("nan"))
+
 
 def mqtt_settings() -> dict:
     host = os.environ.get("MQTT_HOST")

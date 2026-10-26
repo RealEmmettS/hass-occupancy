@@ -160,14 +160,34 @@ def status():
     with connect() as db:
         totals = {kind: count for kind, count in db.execute("SELECT kind,COUNT(*) FROM records GROUP BY kind")}
         span = db.execute("SELECT MIN(captured_at),MAX(captured_at) FROM records").fetchone()
+        cutoff = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=1)).isoformat(timespec="seconds")
+        recent = db.execute("SELECT COUNT(*) FROM records WHERE kind='observations' AND captured_at>=?", (cutoff,)).fetchone()[0]
+        observed_span = db.execute("SELECT MIN(captured_at),MAX(captured_at),COUNT(DISTINCT substr(captured_at,1,10)) FROM records WHERE kind='observations'").fetchone()
         latest = {}
         for kind in ("forecast", "observations", "forecast_status", "collection_health"):
             row = db.execute("SELECT captured_at,payload FROM records WHERE kind=? ORDER BY id DESC LIMIT 1", (kind,)).fetchone()
             latest[kind] = None if row is None else {"captured_at": row[0], "value": json.loads(gzip.decompress(row[1]))}
     with LOCK:
         runtime = dict(RUNTIME)
-    return {"version": "1.0.4", "retention_days": RETENTION, "sample_seconds": 60,
+    observations = (latest.get("observations") or {}).get("value") or {}
+    tracker_checks = {}
+    for name, entity in RESIDENTS.items():
+        person = observations.get(entity) or {}
+        trackers = person.get("attributes", {}).get("device_trackers") or []
+        states = {t: observations[t]["state"] for t in trackers
+                  if (observations.get(t) or {}).get("state") not in
+                  (None, "unknown", "unavailable", "")}
+        tracker_checks[name] = {
+            "available": len(states),
+            "disagree": len({s == "home" for s in states.values()}) > 1,
+            "entity_present": entity in observations,
+        }
+    return {"version": "1.0.5", "retention_days": RETENTION, "sample_seconds": 60,
             "counts": totals, "first_record": span[0], "last_record": span[1],
+            "observation_history": {"first": observed_span[0], "last": observed_span[1],
+                                    "calendar_days": observed_span[2], "samples_last_24h": recent,
+                                    "expected_samples_24h": 1440},
+            "tracker_checks": tracker_checks,
             "bytes": sum(p.stat().st_size for p in DATA.glob("journal.sqlite3*")),
             "runtime": runtime, "latest": latest, "residents": RESIDENTS,
             "forecast_members": FORECAST_MEMBERS,

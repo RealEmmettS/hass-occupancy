@@ -74,6 +74,21 @@ def _rows() -> pd.DataFrame:
     })
 
 
+def test_newly_stale_proximity_is_cleared_instead_of_retaining_grid_distance():
+    rows = _rows()
+    rows["distance_km"] = 10.0
+    result = nowcast.apply(rows, _source(alice=_trace(), bob=_trace()), AT)
+    assert result["distance_km"].isna().all()
+
+
+def test_unknown_nowcast_clears_coverage_alongside_presence():
+    events = _trace() + [(AT.isoformat(), "unknown")]
+    result = nowcast.apply(_rows(), _source(alice=events, bob=_trace()), AT)
+    alice = result[result.subject == "alice"].iloc[0]
+    assert pd.isna(alice.state_now)
+    assert alice.coverage == 0
+
+
 # ---------------------------------------------------------------------------
 # presence_fraction
 # ---------------------------------------------------------------------------
