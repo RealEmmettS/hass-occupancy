@@ -133,3 +133,32 @@ def test_pruning_forecasts_leaves_the_archive_alone(store, now):
     store.prune_forecasts(now - dt.timedelta(days=30))
     assert store.forecast_count() == 0
     assert store.count() == 1, "the training history is not the chart's to delete"
+def test_concurrent_readers_and_collector_return_exact_records(tmp_path):
+    from concurrent.futures import ThreadPoolExecutor
+    import threading
+    from occupancy_forecast.sources.store import HistoryStore
+
+    store = HistoryStore(tmp_path / "concurrent.db")
+    store.append([("person.alice", 1000 + i, str(i)) for i in range(100)])
+    expected = store.states("person.alice", "1970-01-01T00:00:00Z")
+    begin = threading.Barrier(9)
+
+    def reader():
+        begin.wait(timeout=10)
+        for _ in range(100):
+            assert store.states("person.alice", "1970-01-01T00:00:00Z") == expected
+            assert store.last_seen("person.alice") == 1099
+            assert store.count() >= 100
+
+    def collector():
+        begin.wait(timeout=10)
+        for i in range(100):
+            store.append([("person.bob", 2000 + i, str(i))])
+
+    with ThreadPoolExecutor(max_workers=9) as pool:
+        futures = [pool.submit(reader) for _ in range(8)] + [pool.submit(collector)]
+        for future in futures:
+            future.result(timeout=30)
+    assert store.count() == 200
+    assert len(store.seeded_states("person.bob", "1970-01-01T00:00:01Z")) == 100
+    store.close()

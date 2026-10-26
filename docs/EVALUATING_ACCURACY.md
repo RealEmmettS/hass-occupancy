@@ -75,3 +75,12 @@ come from held-out fold predictions. Do not reduce the gate just to show a value
 
 References: [probability calibration and Brier scoring](https://scikit-learn.org/stable/modules/calibration.html)
 and [histogram gradient boosting parameters](https://scikit-learn.org/1.7/modules/generated/sklearn.ensemble.HistGradientBoostingRegressor.html).
+
+## Concurrent history access
+
+The API, collector and prediction worker share one SQLite connection. Cross-thread
+access is serialized through a reentrant lock, including cursor consumption and
+commit. A regression test overlaps eight exact-record readers with a collector.
+The pre-fix synthetic reproduction returned incorrect row counts and query errors;
+the fixed version preserves the expected rows. This addresses the class of
+connection reuse problem described in [CPython issue 118172](https://github.com/python/cpython/issues/118172).

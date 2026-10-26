@@ -31,6 +31,8 @@ from __future__ import annotations
 
 import datetime as dt
 import sqlite3
+import threading
+from functools import wraps
 from pathlib import Path
 from typing import Iterable
 
@@ -72,8 +74,25 @@ def _iso(ms: int) -> str:
     return dt.datetime.fromtimestamp(ms / 1000, dt.timezone.utc).isoformat()
 
 
+def _serialized(method):
+    """Keep a shared connection's statements, cursor reads and commits together.
+
+    check_same_thread=False permits cross-thread access; it does not make the
+    Python connection's statement cache safe for overlapping cursor use. Both
+    FastAPI readers and the collector use this object. RLock also permits public
+    helpers such as seeded_states to call states while keeping one operation
+    atomic. Every result is materialized before releasing the lock.
+    """
+    @wraps(method)
+    def call(self, *args, **kwargs):
+        with self._lock:
+            return method(self, *args, **kwargs)
+    return call
+
+
 class HistoryStore:
     def __init__(self, path: Path | str = "/data/history.db"):
+        self._lock = threading.RLock()
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._db = sqlite3.connect(str(self.path), check_same_thread=False)
@@ -90,6 +109,7 @@ class HistoryStore:
 
     # -- writing ------------------------------------------------------------
 
+    @_serialized
     def append(self, rows: Iterable[tuple[str, int, str]]) -> int:
         """Insert (entity_id, epoch_ms, value). Duplicates are ignored, not errors."""
         rows = list(rows)
@@ -101,6 +121,7 @@ class HistoryStore:
         self._db.commit()
         return self.count() - before
 
+    @_serialized
     def append_forecasts(self, rows: Iterable[tuple]) -> int:
         """Insert (subject, target_ts_ms, horizon_h, p). Last write wins.
 
@@ -124,6 +145,7 @@ class HistoryStore:
 
     # -- reading ------------------------------------------------------------
 
+    @_serialized
     def states(self, entity_id: str, start: str,
                stop: str | None = None) -> list[tuple[str, str]]:
         sql = "SELECT ts, value FROM states WHERE entity_id = ? AND ts >= ?"
@@ -134,6 +156,7 @@ class HistoryStore:
         sql += " ORDER BY ts"
         return [(_iso(ts), value) for ts, value in self._db.execute(sql, args)]
 
+    @_serialized
     def seeded_states(self, entity_id: str, start: str, stop: str | None = None,
                       seed_days: int = 14) -> list[tuple[str, str]]:
         rows = self.states(entity_id, start, stop)
@@ -144,6 +167,7 @@ class HistoryStore:
             rows = [(_iso(_ms(start)), seed[0]), *rows]
         return rows
 
+    @_serialized
     def numeric(self, entity_id: str, start: str,
                 stop: str | None = None) -> list[tuple[str, float]]:
         out: list[tuple[str, float]] = []
@@ -154,6 +178,7 @@ class HistoryStore:
                 continue
         return out
 
+    @_serialized
     def forecast_series(self, subject: str, horizon_h: int, start: str,
                         stop: str | None = None) -> list[tuple[int, float]]:
         """What was forecast for each slot at one horizon, oldest first.
@@ -172,6 +197,7 @@ class HistoryStore:
         sql += " ORDER BY target_ts"
         return [(ts, p) for ts, p in self._db.execute(sql, args)]
 
+    @_serialized
     def forecast_context(self, subject: str, horizon_h: int, start: str,
                          stop: str) -> dict[int, dict]:
         """Issue-time evidence. Legacy rows intentionally have no invented clock."""
@@ -182,6 +208,7 @@ class HistoryStore:
         return {target: {"issued_ts": issued, "current": current, "model_version": version}
                 for target, issued, current, version in rows}
 
+    @_serialized
     def forecast_count(self, subject: str | None = None) -> int:
         if subject is None:
             return self._db.execute("SELECT COUNT(*) FROM forecasts").fetchone()[0]
@@ -190,14 +217,17 @@ class HistoryStore:
 
     # -- housekeeping -------------------------------------------------------
 
+    @_serialized
     def count(self) -> int:
         return self._db.execute("SELECT COUNT(*) FROM states").fetchone()[0]
 
+    @_serialized
     def last_seen(self, entity_id: str) -> int | None:
         row = self._db.execute(
             "SELECT MAX(ts) FROM states WHERE entity_id = ?", (entity_id,)).fetchone()
         return row[0] if row and row[0] is not None else None
 
+    @_serialized
     def span(self) -> dict:
         row = self._db.execute("SELECT MIN(ts), MAX(ts), COUNT(*) FROM states").fetchone()
         first, last, n = row
@@ -209,10 +239,12 @@ class HistoryStore:
             "bytes": self.path.stat().st_size if self.path.exists() else 0,
         }
 
+    @_serialized
     def entities(self) -> list[str]:
         return [r[0] for r in self._db.execute(
             "SELECT DISTINCT entity_id FROM states ORDER BY entity_id")]
 
+    @_serialized
     def inventory(self) -> list[dict]:
         """One row per entity: how much of it there is, and what it spans.
 
@@ -230,6 +262,7 @@ class HistoryStore:
                     "SELECT entity_id, COUNT(*), MIN(ts), MAX(ts) FROM states "
                     "GROUP BY entity_id ORDER BY entity_id")]
 
+    @_serialized
     def value_counts(self, entity_id: str, limit: int = 12) -> list[tuple[str, int]]:
         """The commonest values for one entity, most frequent first.
 
@@ -243,6 +276,7 @@ class HistoryStore:
             "SELECT value, COUNT(*) AS n FROM states WHERE entity_id = ? "
             "GROUP BY value ORDER BY n DESC, value LIMIT ?", (entity_id, limit))]
 
+    @_serialized
     def prune_forecasts(self, before: str | dt.datetime) -> int:
         """Drop forecasts about slots older than `before`. Returns rows removed.
 
@@ -256,5 +290,6 @@ class HistoryStore:
         self._db.commit()
         return cur.rowcount
 
+    @_serialized
     def close(self) -> None:
         self._db.close()
