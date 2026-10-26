@@ -1,3 +1,9 @@
+# 0.1.5 — Reliable concurrent history reads
+
+- Serialize operations on the shared SQLite connection so dashboard, collection and training requests cannot return inconsistent rows or interrupt each other's transactions.
+- Preserve archive contents, forecast records, configuration and model compatibility.
+- Verify overlapping readers and a writer against exact synthetic records.
+
 # 0.1.4 — Causal training and measured accuracy
 
 - Align training and serving on trailing five-minute presence, zone and direction features.
