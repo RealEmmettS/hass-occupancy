@@ -1,10 +1,7 @@
 # Changelog — Edge
 
 This is the **queue**, not a release history. Entries accumulate under
-`## Unreleased
-
-The causal-feature and accuracy work was promoted to stable 0.1.4. See
-`../docs/EVALUATING_ACCURACY.md` for the evaluation contract.` as work lands on edge; `scripts/promote.sh` is the moment they
+`## Unreleased` as work lands on edge; `scripts/promote.sh` is the moment they
 move into `../occupancy-forecast/CHANGELOG.md` under a stable version number and
 this section is emptied again.
 
@@ -13,6 +10,17 @@ File each entry under the same `### Added` / `### Changed` / `### Fixed` /
 rather than a rewrite.
 
 ## Unreleased
+
+### Added
+
+- Separate 15-minute forecasts across the next two hours, with five-minute targets and qualification per person and lead.
+- Timestamped prospective records, including withheld attempts, and matched persistence comparisons.
+- A responsive two-hour panel with person/time controls and live accuracy.
+
+### Changed
+
+- Near-term training requires fully known target windows; validation covers all five-minute phases while fits retain half-hour origins.
+- Distance deltas use actual elapsed minutes at every feature-grid resolution.
 
 ### Fixed
 

@@ -51,6 +51,16 @@ CREATE TABLE IF NOT EXISTS forecasts (
     p         REAL    NOT NULL,
     PRIMARY KEY (subject, target_ts, horizon_h)
 ) WITHOUT ROWID;
+CREATE TABLE IF NOT EXISTS near_term_forecasts (
+    subject TEXT NOT NULL,
+    issued_ts INTEGER NOT NULL,
+    target_ts INTEGER NOT NULL,
+    lead_minutes INTEGER NOT NULL,
+    p REAL,
+    current REAL,
+    model_version TEXT,
+    PRIMARY KEY (subject, issued_ts, lead_minutes)
+) WITHOUT ROWID;
 """
 
 # Deliberately NO secondary index on `forecasts`. The primary key IS the
@@ -144,6 +154,29 @@ class HistoryStore:
         return len(rows)
 
     # -- reading ------------------------------------------------------------
+
+    @_serialized
+    def append_near_term(self, rows: Iterable[tuple]) -> int:
+        """Retain every issue, including withheld points; never rewrite history."""
+        rows = list(rows)
+        self._db.executemany("INSERT OR IGNORE INTO near_term_forecasts "
+                             "VALUES (?, ?, ?, ?, ?, ?, ?)", rows)
+        self._db.commit()
+        return len(rows)
+
+    @_serialized
+    def near_term_forecasts(self, subject: str, minutes: int, start: str, stop: str) -> list[dict]:
+        rows = self._db.execute(
+            "SELECT issued_ts, target_ts, p, current, model_version FROM near_term_forecasts "
+            "WHERE subject = ? AND issued_ts >= ? AND issued_ts < ? AND lead_minutes = ? "
+            "ORDER BY issued_ts", (subject, _ms(start), _ms(stop), minutes)).fetchall()
+        return [dict(zip(("issued_ts", "target_ts", "p", "current", "model_version"), row))
+                for row in rows]
+
+    @_serialized
+    def prune_near_term(self, before: str) -> None:
+        self._db.execute("DELETE FROM near_term_forecasts WHERE issued_ts < ?", (_ms(before),))
+        self._db.commit()
 
     @_serialized
     def states(self, entity_id: str, start: str,

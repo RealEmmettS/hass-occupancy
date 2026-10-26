@@ -1,7 +1,7 @@
 import type {
   Archive, Candidates, ConfigPatch, EntitySeries, FeatureInventory, Forecast,
   FeatureSeries, HorizonRecipe, MetricsDetail, MetricsSummary, Settings, Status,
-  Verification,
+  Verification, NearTermVerification,
 } from './types'
 
 /**
@@ -25,6 +25,11 @@ export const getSettings = () => get<Settings>('api/config')
 /** The Overview tab. Served from what was last published, so this and the Home
  *  Assistant entities can never disagree. */
 export const getForecast = () => get<Forecast>('api/forecast')
+
+export const getNearTermVerification = (subject: string, minutes: number) =>
+  get<NearTermVerification>(`api/near-term/verification?${new URLSearchParams({
+    subject, minutes: String(minutes), days: '7',
+  })}`)
 
 /**
  * The Data tab.

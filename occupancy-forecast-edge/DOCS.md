@@ -1,12 +1,12 @@
 # Occupancy Forecast Edge
 
-The development build of [Occupancy Forecast](https://github.com/MartvanMale/hass-occupancy).
+The development build of [Occupancy Forecast](https://github.com/RealEmmettS/hass-occupancy).
 Same code, newer. If you only want the thing to work, install **Occupancy Forecast**
 instead and ignore this one.
 
 **Everything about what the add-on does, what it publishes and how to read the
 panel is in [the stable add-on's
-documentation](https://github.com/MartvanMale/hass-occupancy/blob/main/occupancy-forecast/DOCS.md).**
+documentation](https://github.com/RealEmmettS/hass-occupancy/blob/main/occupancy-forecast/DOCS.md).**
 This page covers only what is different about running the edge build.
 
 ## Why it exists
@@ -67,3 +67,15 @@ also reports actual lead time for records with issue timestamps.
 See [the evaluation guide](https://github.com/RealEmmettS/hass-occupancy/blob/main/docs/EVALUATING_ACCURACY.md)
 for the distinction between backtests and published predictions, candidate
 selection, uncertainty, missing data, and conditional arrival ETA.
+
+## Near-term occupancy
+
+The Overview now includes **The next two hours**, with a probability every
+15 minutes. Each point predicts occupancy during the five minutes beginning at
+the shown time. Select a person or the combined tracked residents, then select a
+time to inspect that lead's live accuracy. Missing points have not passed the
+per-person publication checks. A fine interval does not promise an equally
+precise arrival or departure time.
+
+The existing hourly forecast remains separate. Read
+[`docs/NEAR_TERM.md`](../docs/NEAR_TERM.md) for qualification and record details.

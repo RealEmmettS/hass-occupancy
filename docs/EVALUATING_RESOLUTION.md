@@ -40,6 +40,17 @@ gains, and collect prospective evidence before claiming a live improvement.
 
 ## Criteria for a near-term extension
 
+Stable 0.1.6 implements the separate head described in
+[Near-term occupancy](NEAR_TERM.md). `scripts/qualify-near-term.py` exercises its
+production gate and serving path. Target windows must be fully known, and each
+subject/lead is gated independently. Production validation includes all five-minute
+phases, while fits still use half-hour origins.
+
+Distance changes must always use actual elapsed 30/60 minutes. A positional
+one-row difference means five minutes on a five-minute grid, and confounds a
+resolution comparison. The feature builder now uses timestamp offsets at every
+resolution. Older experimental outputs from before this correction are superseded.
+
 Keep the longer-range forecast separate. A potential near-term extension should
 train on finer targets and use its own explicitly labelled horizon and target
 duration, origin timestamp, and matched baseline records. Gate each horizon and
