@@ -1,3 +1,9 @@
+# 0.1.7 — Preserve publication order after retraining
+
+- Serialize scheduled, manual and training-completion prediction cycles.
+- Select model references after the cycle lock is acquired, so an older in-flight forecast cannot overwrite the new model's output.
+- Preserve trained models, collected history and near-term prediction records.
+
 # 0.1.6 — Separate near-term forecasts
 
 - Add 15-minute steps across the next two hours, predicting fully observed five-minute presence windows.
