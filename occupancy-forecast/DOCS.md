@@ -472,3 +472,22 @@ recorded journeys before it will ship at all.
 line is hourly, so silence older than that means the worker has stopped. The
 watchdog dumps every thread's stack to the log and raises `worker.stalled` on
 `/api/status`; that dump is what says where it stopped.
+
+
+## Accuracy evaluation and model 0.5.0
+
+Training now uses the same trailing five-minute current-state features as live
+prediction. Proximity units are normalized and unfinished slots are excluded
+from historical lags. Existing model artifacts require retraining after this
+update; use **Retrain now** after the add-on starts.
+
+The accuracy card shows probability error, forecast coverage, and a comparison
+with staying in the state observed when that same forecast was issued. That
+comparison accumulates from this version onward; older records retain their
+original predictions without invented baseline values. Only completed, observed
+slots are scored. The named horizon is anchored to the half-hour grid; the card
+also reports actual lead time for records with issue timestamps.
+
+See [the evaluation guide](https://github.com/RealEmmettS/hass-occupancy/blob/main/docs/EVALUATING_ACCURACY.md)
+for the distinction between backtests and published predictions, candidate
+selection, uncertainty, missing data, and conditional arrival ETA.

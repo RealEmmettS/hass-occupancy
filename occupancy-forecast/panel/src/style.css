@@ -767,3 +767,11 @@ details.more > summary { font-size: var(--secondary-size); color: var(--text-2);
                          list-style-position: inside; }
 details.more > summary:hover { background: rgba(var(--rgb-grey), .12);
                                color: var(--text); }
+
+/* Keep accuracy, coverage, and the comparison in the visible scan path. */
+.verification-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 18px 0 12px; }
+.verification-stats > div { display: flex; flex-direction: column; gap: 6px; padding: 14px; border: 1px solid var(--divider-color, #8884); border-radius: 12px; }
+.verification-stats span, .verification-stats small, .verification-note { font-size: 12px; line-height: 1.5; color: var(--secondary-text-color, #888); }
+.verification-stats strong { font-size: 23px; font-weight: 500; font-variant-numeric: tabular-nums; }
+.verification-note { margin: 8px 0 16px; }
+@media (max-width: 600px) { .verification-stats { grid-template-columns: 1fr; } .verification-stats > div { gap: 3px; } }

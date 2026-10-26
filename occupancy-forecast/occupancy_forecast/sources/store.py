@@ -78,6 +78,11 @@ class HistoryStore:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._db = sqlite3.connect(str(self.path), check_same_thread=False)
         self._db.executescript(SCHEMA)
+        columns = {row[1] for row in self._db.execute("PRAGMA table_info(forecasts)")}
+        for name, kind in (("issued_ts", "INTEGER"), ("current", "REAL"),
+                           ("model_version", "TEXT")):
+            if name not in columns:
+                self._db.execute(f"ALTER TABLE forecasts ADD COLUMN {name} {kind}")
         # WAL so a long feature build reading the store does not block the
         # collector appending to it.
         self._db.execute("PRAGMA journal_mode=WAL")
@@ -96,7 +101,7 @@ class HistoryStore:
         self._db.commit()
         return self.count() - before
 
-    def append_forecasts(self, rows: Iterable[tuple[str, int, int, float]]) -> int:
+    def append_forecasts(self, rows: Iterable[tuple]) -> int:
         """Insert (subject, target_ts_ms, horizon_h, p). Last write wins.
 
         `INSERT OR REPLACE`, not `OR IGNORE` as `append` uses, and the
@@ -106,12 +111,14 @@ class HistoryStore:
         numbers. The last one is the one the sensor was actually holding when
         the slot arrived, which is what this table exists to be scored against.
         """
-        rows = list(rows)
+        rows = [tuple(row) + (None, None, None) if len(row) == 4 else tuple(row)
+                for row in rows]
         if not rows:
             return 0
         self._db.executemany(
-            "INSERT OR REPLACE INTO forecasts (subject, target_ts, horizon_h, p) "
-            "VALUES (?, ?, ?, ?)", rows)
+            "INSERT OR REPLACE INTO forecasts "
+            "(subject, target_ts, horizon_h, p, issued_ts, current, model_version) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)", rows)
         self._db.commit()
         return len(rows)
 
@@ -164,6 +171,16 @@ class HistoryStore:
             args.append(_ms(stop))
         sql += " ORDER BY target_ts"
         return [(ts, p) for ts, p in self._db.execute(sql, args)]
+
+    def forecast_context(self, subject: str, horizon_h: int, start: str,
+                         stop: str) -> dict[int, dict]:
+        """Issue-time evidence. Legacy rows intentionally have no invented clock."""
+        rows = self._db.execute(
+            "SELECT target_ts, issued_ts, current, model_version FROM forecasts "
+            "WHERE subject=? AND horizon_h=? AND target_ts>=? AND target_ts<?",
+            (subject, int(horizon_h), _ms(start), _ms(stop)))
+        return {target: {"issued_ts": issued, "current": current, "model_version": version}
+                for target, issued, current, version in rows}
 
     def forecast_count(self, subject: str | None = None) -> int:
         if subject is None:

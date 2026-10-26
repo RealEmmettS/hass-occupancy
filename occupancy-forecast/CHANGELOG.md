@@ -1,3 +1,14 @@
+# 0.1.4 — Causal training and measured accuracy
+
+- Align training and serving on trailing five-minute presence, zone and direction features.
+- Correct declared proximity units, and exclude unfinished origin slots from daily lags.
+- Fit a more regularized dedicated model, with temporal validation and unchanged publication gates.
+- Preserve explicit unknown current presence without publishing stale curves or ETA values.
+- Record forecast issue time, model version and same-time persistence baseline; score only completed observed slots.
+- Show probability error, publication coverage and matched persistence comparison together.
+- Clarify that the combined forecast covers selected residents; improve name formatting and phone layouts.
+- Invalidate old model artifacts and retrain before using the new feature contract.
+
 # 0.1.2 — Preserve missing presence and truthful training readiness
 
 - Retain unknown/unavailable person and group readings as gap boundaries.

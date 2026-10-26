@@ -201,7 +201,7 @@ def entity_series(source, settings, entity_id: str, days: int | None = None) -> 
         # column the model actually sees, so the axis agrees with the feature.
         unit = settings.units.get(entity_id) if settings else None
         if _is_distance(entity_id, settings):
-            values = values / 1000.0
+            values = values * config.distance_scale(entity_id) / 1000.0
             unit = "km"
         gridded = [{"t": t.isoformat(), "v": _num(v), "coverage": None}
                    for t, v in zip(slots, values)]
@@ -592,6 +592,7 @@ def verification(source, settings, subject: str, horizon_h: int,
     stop = pd.Timestamp.now(tz="UTC")
     start = stop - pd.Timedelta(days=days)
     slots = features.grid(start, stop)
+    slots = slots[slots + pd.Timedelta(minutes=config.GRID_MINUTES) <= stop]
     if len(slots) == 0:
         return unavailable("the window is shorter than one slot")
 
@@ -610,10 +611,34 @@ def verification(source, settings, subject: str, horizon_h: int,
     observed = features.slot_fraction(events, slots, config.HOME_STATE)
 
     actual = observed["frac"].to_numpy()
+    actual[~features.observability(features._liveness(source, start.isoformat(),
+                                                     stop.isoformat()), slots)] = np.nan
     # `slots` is tz-aware UTC and the table stores epoch ms, so this is the
     # equality join the write side was designed to make possible.
     forecast = np.array([by_slot.get(int(t.timestamp() * 1000), np.nan)
                          for t in slots], dtype=float)
+
+    context = store.forecast_context(subject, horizon_h, start.isoformat(), stop.isoformat())
+    baseline_p = np.full(len(slots), np.nan)
+    lead_minutes = []
+    versions: set[str] = set()
+    for i, t in enumerate(slots):
+        target = int(t.timestamp() * 1000)
+        item = context.get(target) or {}
+        issued = item.get("issued_ts")
+        if issued is not None:
+            if issued >= target:
+                forecast[i] = np.nan
+                continue
+            if pd.notna(forecast[i]):
+                lead_minutes.append((target - issued) / 60000)
+                baseline_p[i] = item.get("current") if item.get("current") is not None else np.nan
+        if item.get("model_version") and pd.notna(forecast[i]):
+            versions.add(item["model_version"])
+
+    comparison = np.isfinite(actual) & np.isfinite(forecast) & np.isfinite(baseline_p)
+    comparable_score = evaluate.score(actual[comparison], forecast[comparison])
+    baseline_score = evaluate.score(actual[comparison], baseline_p[comparison])
 
     points = [{"t": t.isoformat(), "actual": _num(a), "forecast": _num(f)}
               for t, a, f in zip(slots, actual, forecast)]
@@ -633,6 +658,13 @@ def verification(source, settings, subject: str, horizon_h: int,
         "scored": scores.n,
         "brier": _num(scores.brier),
         "mae": _num(scores.mae_frac),
+        "comparison_scored": baseline_score.n,
+        "comparison_brier": _num(comparable_score.brier),
+        "persistence_brier": _num(baseline_score.brier),
+        "skill_vs_persistence_pct": _num(comparable_score.skill_vs(baseline_score)),
+        "lead_minutes_min": _num(min(lead_minutes)) if lead_minutes else None,
+        "lead_minutes_max": _num(max(lead_minutes)) if lead_minutes else None,
+        "model_versions": sorted(versions),
         "retention_days": config.FORECAST_RETENTION_DAYS,
         "summary": _verification_summary(len(slots), served, scores),
     }

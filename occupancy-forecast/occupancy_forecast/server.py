@@ -221,10 +221,16 @@ def _record_forecasts(results: list[dict]) -> None:
             anchor = dt.datetime.fromisoformat(observed_at)
             if anchor.tzinfo is None:
                 anchor = anchor.replace(tzinfo=dt.timezone.utc)
+            issued = result.get("predicted_at")
+            issued_ms = (int(dt.datetime.fromisoformat(issued).timestamp() * 1000)
+                         if issued else None)
             for horizon, value in (result.get("curve") or {}).items():
                 target = anchor + dt.timedelta(hours=int(horizon))
+                if issued_ms is not None and issued_ms >= int(target.timestamp() * 1000):
+                    continue  # stale origin: not a forecast about the future
                 rows.append((result["subject"], int(target.timestamp() * 1000),
-                             int(horizon), float(value)))
+                             int(horizon), float(value), issued_ms,
+                             result.get("current"), result.get("model_version")))
         store.append_forecasts(rows)
         store.prune_forecasts(
             dt.datetime.now(dt.timezone.utc)
@@ -903,6 +909,8 @@ def api_forecast() -> dict:
             # labels and not the whole forecast endpoint -- the panel's `at`
             # prop is optional for exactly this reason.
             "observed_at": r.get("observed_at"),
+            "current_at": r.get("current_at"),
+            "model_version": r.get("model_version"),
             "curve": r["curve"],
             "next_departure_h": r["next_departure_h"],
             "next_arrival_h": r["next_arrival_h"],

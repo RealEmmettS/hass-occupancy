@@ -37,7 +37,7 @@ const CURVE_ACCENT = ['blue', 'orange', 'aqua', 'red'] as const
 
 /** `alice` -> `Alice`. The slug is derived from the person's entity id, so it is
  *  the closest thing to a name the add-on has without asking Home Assistant. */
-const pretty = (slug: string) => slug.charAt(0).toUpperCase() + slug.slice(1)
+const pretty = (slug: string) => slug.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
 
 const percent = (v: number) => `${(v * 100).toFixed(1)}%`
 
@@ -91,16 +91,16 @@ function SubjectRows({ subjects, house }: { subjects: SubjectForecast[]; house: 
   return (
     <>
       {subjects.map((s) => {
-        const homeNow = s.current >= 0.5
+        const homeNow = s.current !== null && s.current >= 0.5
         const soon = s.curve['1']
         return (
           <Row
             key={s.subject}
             icon={homeNow ? 'model' : 'baseline'}
             accent={homeNow ? 'aqua' : 'orange'}
-            primary={s.subject === house ? 'The house' : pretty(s.subject)}
+            primary={s.subject === house ? 'Tracked residents' : pretty(s.subject)}
             secondary={
-              `${homeNow ? 'Home now' : 'Away now'}` +
+              `${s.current === null ? 'Presence unknown' : homeNow ? 'Home now' : 'Away now'}` +
               (soon === undefined
                 ? ' · +1 h not served'
                 : ` · ${percent(soon)} in an hour`)
@@ -127,7 +127,7 @@ function ChangeRows({ subjects, house }: { subjects: SubjectForecast[]; house: s
           ?? { direction: null, in_hours: null, at: null, at_from: null }
         const leaving = change.direction === 'leaving'
         const arriving = change.direction === 'arriving'
-        const name = s.subject === house ? 'The house' : pretty(s.subject)
+        const name = s.subject === house ? 'Tracked residents' : pretty(s.subject)
         // The ETA earns its place only while they are demonstrably travelling:
         // `eta_minutes` is null otherwise, which is why the old "if already on
         // the way" hedge could be dropped.
@@ -206,7 +206,7 @@ export function OverviewView({ status, refreshStatus }: {
   // the add-on has nothing to say about.
   const curves: Curve[] = ordered.map((s, i) => ({
     key: s.subject,
-    label: s.subject === house ? 'House' : pretty(s.subject),
+    label: s.subject === house ? 'Tracked residents' : pretty(s.subject),
     accent: CURVE_ACCENT[i % CURVE_ACCENT.length]!,
     values: (ready?.horizons ?? []).map((h) => s.curve[String(h)] ?? null),
   }))
