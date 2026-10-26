@@ -182,7 +182,7 @@ def status():
             "disagree": len({s == "home" for s in states.values()}) > 1,
             "entity_present": entity in observations,
         }
-    return {"version": "1.0.5", "retention_days": RETENTION, "sample_seconds": 60,
+    return {"version": "1.0.6", "retention_days": RETENTION, "sample_seconds": 60,
             "counts": totals, "first_record": span[0], "last_record": span[1],
             "observation_history": {"first": observed_span[0], "last": observed_span[1],
                                     "calendar_days": observed_span[2], "samples_last_24h": recent,

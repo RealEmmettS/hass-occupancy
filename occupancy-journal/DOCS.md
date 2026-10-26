@@ -86,3 +86,5 @@ trackers. Unknown trackers are excluded from the agreement comparison. A missing
 configured person is shown explicitly. Agreement is about home versus away and
 is not proof of physical presence. History and original forecast revisions are
 preserved during the update.
+
+Version 1.0.6 shows unavailable cooling inputs as missing readings and omits absent measurements instead of displaying undefined values.
