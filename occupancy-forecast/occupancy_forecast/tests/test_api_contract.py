@@ -39,6 +39,7 @@ OUT_ROUTINE_KEYS = {
     "return_hour", "return_sd", "return_from", "fitted_at",
 }
 SUBJECT_FORECAST_KEYS = {"subject", "current", "observed_at", "curve",
+                         "near_term",
                          "next_departure_h",
                          "next_arrival_h", "eta_minutes", "next_change"}
 NEXT_CHANGE_KEYS = {"direction", "in_hours", "at", "at_from"}

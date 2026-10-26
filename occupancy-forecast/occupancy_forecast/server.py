@@ -32,6 +32,7 @@ import time
 from pathlib import Path
 
 import uvicorn
+import pandas as pd
 from fastapi import FastAPI, HTTPException, Response
 from fastapi.responses import HTMLResponse
 
@@ -39,6 +40,7 @@ from . import (config, departure, discover, eta as eta_mod, evaluate, explore,
                features, listen, log, night)
 from . import outing as outing_mod, predict as predict_mod, runtime
 from . import train as train_mod
+from . import near_term
 from . import web
 
 _log = log.get(__name__)
@@ -164,6 +166,7 @@ def _load_models() -> None:
     _state["models"] = predict_mod.load_models(config.MODELS_DIR)
     _state["eta_models"] = eta_mod.load_models(config.MODELS_DIR)
     _state["out_routine"] = outing_mod.load_routine(config.MODELS_DIR)
+    _state["near_model"] = near_term.load(config.MODELS_DIR)
     _state["loaded_at"] = dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
 
 
@@ -232,6 +235,20 @@ def _record_forecasts(results: list[dict]) -> None:
                              int(horizon), float(value), issued_ms,
                              result.get("current"), result.get("model_version")))
         store.append_forecasts(rows)
+        short_rows = []
+        for result in results:
+            short = result.get("near_term")
+            if not short:
+                continue
+            issued_ms = int(pd.Timestamp(short["issued_at"]).timestamp() * 1000)
+            for point in short["points"]:
+                short_rows.append((result["subject"], issued_ms,
+                                   int(pd.Timestamp(point["target_at"]).timestamp() * 1000),
+                                   point["minutes"], point["p"], short["current"],
+                                   short["model_version"]))
+        if short_rows:
+            store.append_near_term(short_rows)
+            store.prune_near_term((pd.Timestamp.now(tz="UTC") - pd.Timedelta(days=30)).isoformat())
         store.prune_forecasts(
             dt.datetime.now(dt.timezone.utc)
             - dt.timedelta(days=config.FORECAST_RETENTION_DAYS))
@@ -243,7 +260,7 @@ def _record_forecasts(results: list[dict]) -> None:
 def do_predict() -> list[dict]:
     results = predict_mod.run_cycle(
         _state["models"], _broker.client(), _state["source"], _state["eta_models"],
-        _state["out_routine"])
+        _state["out_routine"], _state.get("near_model"))
     _state["forecast"] = results
     _state["last_predict"] = dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
     _record_forecasts(results)
@@ -295,6 +312,12 @@ def do_train() -> dict:
     with phases("models"):
         summary = train_mod.train_all(config.FEATURES_PATH, config.MODELS_DIR)
     try:
+        with phases("near-term"):
+            near_summary = near_term.train_all(source, config.MODELS_DIR)
+    except Exception as err:
+        _log.error("near-term training failed: %s", err, exc_info=True)
+        near_summary = {"error": str(err)}
+    try:
         with phases("eta"):
             eta_summary = eta_mod.train_all(source, config.MODELS_DIR)
     except Exception as err:  # noqa: BLE001
@@ -324,7 +347,7 @@ def do_train() -> dict:
                   if a.get("metrics", {}).get("kind") == "dedicated"),
               sum(1 for a in _state["models"].values()
                   if a.get("metrics", {}).get("kind") == "pooled"))
-    return {"horizons": summary, "eta": eta_summary,
+    return {"horizons": summary, "eta": eta_summary, "near_term": near_summary,
             "duration_s": round(elapsed, 1),
             "feature_rows": len(table),
             "labelled_rows": int(table["home_frac"].notna().sum())}
@@ -911,6 +934,7 @@ def api_forecast() -> dict:
             "observed_at": r.get("observed_at"),
             "current_at": r.get("current_at"),
             "model_version": r.get("model_version"),
+            "near_term": r.get("near_term"),
             "curve": r["curve"],
             "next_departure_h": r["next_departure_h"],
             "next_arrival_h": r["next_arrival_h"],
@@ -1157,6 +1181,21 @@ def api_explore_metrics() -> dict:
     return _cached("metrics", train_mod.summary_path(config.MODELS_DIR),
                    lambda: explore.metrics_summary(config.MODELS_DIR,
                                                    _state["models"]))
+
+
+@app.get("/api/near-term/verification")
+def api_near_term_verification(subject: str, minutes: int = 15, days: int = 7) -> dict:
+    try:
+        return near_term.verification(_state["source"], subject, minutes, days)
+    except ValueError as err:
+        raise HTTPException(status_code=400, detail=str(err)) from err
+
+
+@app.get("/api/near-term/metrics")
+def api_near_term_metrics() -> dict:
+    artifact = _state.get("near_model") or {}
+    return {key: artifact.get(key) for key in
+            ("version", "trained_at", "duration_s", "validation", "metrics")}
 
 
 @app.get("/api/explore/metrics/{horizon}")

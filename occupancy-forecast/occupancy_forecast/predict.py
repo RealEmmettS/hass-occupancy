@@ -667,6 +667,7 @@ def publish(results: list[dict], client: mqtt.Client) -> None:
             "current": result["current"],
             "eta_minutes": result["eta_minutes"],
             "eta_is_conditional_on_arriving": True,
+            "near_term": result.get("near_term"),
             # The cuts the two "hours until" numbers were read off: it makes
             # them checkable against `curve` without knowing what the panel is
             # set to.
@@ -696,7 +697,7 @@ def publish(results: list[dict], client: mqtt.Client) -> None:
 
 def run_cycle(models: dict[int, dict], client: mqtt.Client | None, source,
               eta_models: dict[str, dict] | None = None,
-              out_routine: dict | None = None) -> list[dict]:
+              out_routine: dict | None = None, near_model: dict | None = None) -> list[dict]:
     """The single serving path, used by both the CLI and the HTTP server.
 
     A missing client is not an error: the forecast is still computed and
@@ -706,6 +707,10 @@ def run_cycle(models: dict[int, dict], client: mqtt.Client | None, source,
     rows = current_rows(source)
     results = predict_rows(models, rows, arrival_etas(eta_models or {}, source),
                            out_routine or {})
+    from . import near_term
+    short = near_term.forecast(near_model, source)
+    for result in results:
+        result["near_term"] = short.get(result["subject"])
     if client is not None:
         publish(results, client)
     return results

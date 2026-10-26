@@ -562,18 +562,20 @@ FAMILY_WORDS: dict[str, str] = {
 # The grid
 # ---------------------------------------------------------------------------
 
-def grid(start: pd.Timestamp, stop: pd.Timestamp) -> pd.DatetimeIndex:
-    """Left edges of every whole slot in [start, stop].
+def grid(start: pd.Timestamp, stop: pd.Timestamp, minutes: int | None = None,
+         align_end: bool = False) -> pd.DatetimeIndex:
+    """Forward target-window starts; origin features always look backward.
 
-    A slot's window runs FORWARD from its left edge: slot `t` is `[t, t+30min)`,
-    which `slot_fraction` and `test_half_a_slot_away_is_a_half` both depend on.
-    So the newest row here is the IN-PROGRESS slot, labelled by an `observed_at`
-    up to 30 minutes old but carrying the present state carried forward through
-    the rest of its window. It reads as stale and is not; do not "fix" it by
-    phase-shifting the grid, which only makes the newest row a longer trailing
-    average and strictly less responsive. See `nowcast.py`.
+    The hourly head retains clock-aligned half-hours. The separate near-term
+    head can anchor its final row exactly at issue time, including seconds, so
+    +15 minutes means 15 minutes after issue. Unfinished targets remain NaN.
     """
-    freq = f"{config.GRID_MINUTES}min"
+    minutes = minutes or config.GRID_MINUTES
+    freq = f"{minutes}min"
+    if align_end:
+        count = int((stop - start) / pd.Timedelta(minutes=minutes))
+        return pd.date_range(end=stop, periods=count + 1, freq=freq,
+                             tz="UTC", name="time")
     return pd.date_range(start.ceil(freq), stop.floor(freq), freq=freq,
                          tz="UTC", name="time")
 
@@ -789,10 +791,14 @@ def minutes_in_state(events: list[tuple[str, str]], slots: pd.DatetimeIndex) -> 
 def _subject_frame(source, subject: config.Subject, start: str, stop: str | None,
                    slots: pd.DatetimeIndex,
                    observable: np.ndarray | None = None,
-                   origin_observed: np.ndarray | None = None) -> pd.DataFrame:
+                   origin_observed: np.ndarray | None = None,
+                   minutes: int | None = None,
+                   min_target_coverage: float | None = None) -> pd.DataFrame:
     """One subject's presence, on the grid."""
     events = presence_events(source, subject, start, stop)
-    occupancy = slot_fraction(events, slots, config.HOME_STATE)
+    occupancy = slot_fraction(events, slots, config.HOME_STATE, minutes=minutes)
+    if min_target_coverage is not None:
+        occupancy.loc[occupancy.coverage < min_target_coverage, "frac"] = np.nan
     origin = trailing_fraction(events, slots, config.HOME_STATE)
 
     frame = pd.DataFrame(index=slots)
@@ -934,16 +940,16 @@ def _add_proximity(frame: pd.DataFrame, source, subject: config.Subject,
             frame[column] = np.nan
         return
 
-    metres = numeric_on_grid(
-        source.numeric(distance_entity, start, stop),
-        slots, config.DISTANCE_STALE_MIN)
-    frame["distance_km"] = metres * config.distance_scale(distance_entity) / 1000.0
-
-    # The grid is regular, so a positional shift IS a fixed time offset here --
-    # unlike the target join, which crosses gaps. One slot is GRID_MINUTES.
-    per_hour = 60 // config.GRID_MINUTES
-    frame["distance_delta_30m"] = frame["distance_km"].diff(1)
-    frame["distance_delta_60m"] = frame["distance_km"].diff(per_hour)
+    pairs = source.numeric(distance_entity, start, stop)
+    scale = config.distance_scale(distance_entity) / 1000.0
+    here = numeric_on_grid(pairs, slots, config.DISTANCE_STALE_MIN) * scale
+    frame["distance_km"] = here
+    # Explicit time offsets work at every resolution and on an issue-anchored
+    # grid, and match the serving nowcast's distance contract.
+    for minutes in (30, 60):
+        before = numeric_on_grid(pairs, slots - pd.Timedelta(minutes=minutes),
+                                 config.DISTANCE_STALE_MIN) * scale
+        frame[f"distance_delta_{minutes}m"] = here - before
 
     if subject.direction_entity:
         events = source.seeded_states(subject.direction_entity, start, stop)
@@ -952,7 +958,7 @@ def _add_proximity(frame: pd.DataFrame, source, subject: config.Subject,
     else:
         # No Proximity integration: derive direction from the sign of the
         # distance delta, which is all `direction_of_travel` is anyway.
-        delta = frame["distance_km"].diff()
+        delta = frame["distance_delta_30m"]
         frame["dir_towards"] = (delta < -0.05).astype(float).where(delta.notna())
         frame["dir_away"] = (delta > 0.05).astype(float).where(delta.notna())
 
@@ -1037,7 +1043,7 @@ def unmatched_away_states(source, start: str, stop: str | None) -> dict[str, int
 # Derived columns
 # ---------------------------------------------------------------------------
 
-def _cyclical(local: pd.Series, prefix: str = "") -> pd.DataFrame:
+def _cyclical(local: pd.Series, prefix: str = "", minutes: int | None = None) -> pd.DataFrame:
     """Sine/cosine encodings of time-of-day, weekday and month.
 
     Trees can split a raw hour just fine, but they cannot see that 23:30 and
@@ -1045,13 +1051,14 @@ def _cyclical(local: pd.Series, prefix: str = "") -> pd.DataFrame:
     not have much of. The abandoned first attempt at this problem used the same
     encoding; it was the one good idea in it.
     """
-    slot = local.dt.hour * (60 // config.GRID_MINUTES) + local.dt.minute // config.GRID_MINUTES
+    minutes = minutes or config.GRID_MINUTES
+    slot = (local.dt.hour * 60 + local.dt.minute) // minutes
     dow = local.dt.dayofweek
     month = local.dt.month
 
     out = pd.DataFrame(index=local.index)
-    out[f"{prefix}slot_sin"] = np.sin(2 * np.pi * slot / config.SLOTS_PER_DAY)
-    out[f"{prefix}slot_cos"] = np.cos(2 * np.pi * slot / config.SLOTS_PER_DAY)
+    out[f"{prefix}slot_sin"] = np.sin(2 * np.pi * slot / (1440 // minutes))
+    out[f"{prefix}slot_cos"] = np.cos(2 * np.pi * slot / (1440 // minutes))
     out[f"{prefix}dow_sin"] = np.sin(2 * np.pi * dow / 7)
     out[f"{prefix}dow_cos"] = np.cos(2 * np.pi * dow / 7)
     out[f"{prefix}month_sin"] = np.sin(2 * np.pi * (month - 1) / 12)
@@ -1185,7 +1192,8 @@ def deepest_lookback_days() -> int:
     return max(7 * weeks, SLOT_CLIMATOLOGY_DAYS, max(DAILY_LAGS))
 
 
-def _add_horizon_columns(table: pd.DataFrame) -> pd.DataFrame:
+def _add_horizon_columns(table: pd.DataFrame, horizons=None,
+                         resolution_minutes: int | None = None) -> pd.DataFrame:
     """Targets, target-time calendar, and target-relative lags, per horizon."""
     keyed = table.set_index(["subject", "time"])["home_frac"]
 
@@ -1194,7 +1202,7 @@ def _add_horizon_columns(table: pd.DataFrame) -> pd.DataFrame:
 
     new: dict[str, np.ndarray] = {}
 
-    for horizon in config.HORIZONS_H:
+    for horizon in (config.HORIZONS_H if horizons is None else horizons):
         ahead = pd.Timedelta(hours=horizon)
 
         # The target itself.
@@ -1203,7 +1211,8 @@ def _add_horizon_columns(table: pd.DataFrame) -> pd.DataFrame:
         # Calendar of the slot being predicted. Deterministic and known at
         # prediction time, so this is information, not leakage.
         target_local = _localise(table["time"] + ahead)
-        for name, values in _cyclical(target_local, prefix=f"tgt{horizon}h_").items():
+        for name, values in _cyclical(target_local, prefix=f"tgt{horizon}h_",
+                                      minutes=resolution_minutes).items():
             new[name] = values.to_numpy()
 
         # Daily lags OF THE TARGET SLOT. Gated -- see safe_daily_lags.
@@ -1369,7 +1378,9 @@ def usable_history_days(source, stop: str | None = None) -> float:
     return float(np.count_nonzero(valid)) / config.SLOTS_PER_DAY
 
 
-def build(source, start: str | None = None, stop: str | None = None) -> pd.DataFrame:
+def build(source, start: str | None = None, stop: str | None = None, *,
+          resolution_minutes: int | None = None, horizons=None,
+          align_end: bool = False, min_target_coverage: float | None = None) -> pd.DataFrame:
     """Build the modelling table.
 
     Full rebuild every time: the whole history is a handful of range reads and
@@ -1379,7 +1390,8 @@ def build(source, start: str | None = None, stop: str | None = None) -> pd.DataF
     start = start or history_start(source)
     start_ts = pd.Timestamp(start)
     stop_ts = pd.Timestamp(stop) if stop else pd.Timestamp.now(tz="UTC")
-    slots = grid(start_ts, stop_ts)
+    resolution_minutes = resolution_minutes or config.GRID_MINUTES
+    slots = grid(start_ts, stop_ts, resolution_minutes, align_end)
     if len(slots) == 0:
         raise ValueError(f"empty grid for {start}..{stop_ts.isoformat()}")
 
@@ -1389,12 +1401,12 @@ def build(source, start: str | None = None, stop: str | None = None) -> pd.DataF
     observable = observability(liveness, slots)
     # An unfinished target cannot be used as a label, even if its last known
     # state can be carried forward. Origin features remain usable for serving.
-    observable &= (slots + pd.Timedelta(minutes=config.GRID_MINUTES)) <= stop_ts
+    observable &= (slots + pd.Timedelta(minutes=resolution_minutes)) <= stop_ts
     origin_observed = origin_observability(liveness, slots)
 
     frames = {
         subject.slug: _subject_frame(source, subject, start, stop, slots, observable,
-                                     origin_observed)
+                                     origin_observed, resolution_minutes, min_target_coverage)
         for subject in config.SUBJECTS
     }
 
@@ -1415,10 +1427,10 @@ def build(source, start: str | None = None, stop: str | None = None) -> pd.DataF
     table = table.rename(columns={"index": "time"})
 
     local = _localise(table["time"])
-    table = pd.concat([table, _cyclical(local)], axis=1)
+    table = pd.concat([table, _cyclical(local, minutes=resolution_minutes)], axis=1)
 
     table = _add_cross_subject(table)
-    table = _add_horizon_columns(table)
+    table = _add_horizon_columns(table, horizons, resolution_minutes)
 
     # Placeholders for the companion-app sensors that nothing computes yet.
     # `next_alarm_h` is now filled in `_add_next_alarm` and only lands here on

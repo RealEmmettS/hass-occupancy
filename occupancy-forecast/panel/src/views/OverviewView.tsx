@@ -8,6 +8,7 @@ import { Curves, type Curve } from '../components/Curves'
 import { Horizons } from '../components/Horizons'
 import { Training } from '../components/Training'
 import { VerificationCard } from '../components/VerificationCard'
+import { NearTermCard } from '../components/NearTermCard'
 import { relativeTime } from '../format'
 
 /**
@@ -274,6 +275,7 @@ export function OverviewView({ status, refreshStatus }: {
           gap is an hour no model has earned and that the grey is the household
           asleep, both of which are already on screen: the legend carries an
           "asleep" key, and the card above counts the gap. */}
+      <NearTermCard subjects={ordered} house={house} />
       <Card title="The next 48 hours">
         {missing ?? (nothingServed ? (
           <p className="empty">

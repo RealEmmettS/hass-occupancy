@@ -1,3 +1,13 @@
+# 0.1.6 — Separate near-term forecasts
+
+- Add 15-minute steps across the next two hours, predicting fully observed five-minute presence windows.
+- Qualify every person and lead independently against the existing baseline ladder and instantaneous persistence, without lowering publication thresholds.
+- Share causal features across training and inference; validate all five-minute phases and anchor targets to exact issue times.
+- Retain issued revisions and withheld attempts for 30 days, with matched live accuracy and coverage.
+- Show the next two hours, person/time selection and live verification in the panel; retain the existing hourly curve and ETA.
+- Preserve the new forecast field in MQTT attributes and the existing journal snapshots.
+- Correct distance deltas to use elapsed 30/60-minute offsets at every resolution.
+
 # 0.1.5 — Reliable concurrent history reads
 
 - Serialize operations on the shared SQLite connection so dashboard, collection and training requests cannot return inconsistent rows or interrupt each other's transactions.

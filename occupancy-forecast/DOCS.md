@@ -491,3 +491,21 @@ also reports actual lead time for records with issue timestamps.
 See [the evaluation guide](https://github.com/RealEmmettS/hass-occupancy/blob/main/docs/EVALUATING_ACCURACY.md)
 for the distinction between backtests and published predictions, candidate
 selection, uncertainty, missing data, and conditional arrival ETA.
+## The next two hours
+
+Version 0.1.6 adds a separate forecast every 15 minutes, up to two hours ahead.
+Each point describes the chance of being home for most of the five minutes
+starting at the displayed clock time. Select a person or **Tracked residents**,
+then select a time to see its live accuracy. The combined subject means at least
+one selected resident is home.
+
+Every person and lead must pass its own publication checks. Missing values show
+why a prediction is withheld. The live record compares completed, known tracker
+observations with both the issued probability and staying at the current state.
+It reports error and publication coverage; overlapping predictions are not
+independent trials. This record begins with the update.
+
+The hourly curve and travel ETA remain separate. Finer intervals do not imply
+precise arrival/departure times. See
+[the near-term guide](https://github.com/RealEmmettS/hass-occupancy/blob/main/docs/NEAR_TERM.md)
+for qualification, retention and API details.

@@ -184,6 +184,7 @@ export interface ConfigPatch {
 
 /** One subject's published forecast, exactly as it went to MQTT. */
 export interface SubjectForecast {
+  near_term?: NearTermForecast | null
   subject: string
   /** Fraction of the last five minutes spent at home -- an OBSERVATION, not a
    *  prediction. Shown beside the forecast because the comparison is the point. */
@@ -214,6 +215,24 @@ export interface SubjectForecast {
   /** Null for the house, and for anyone without enough history yet. */
   out: OutRoutine | null
   next_change: NextChange | null
+}
+
+export interface NearTermForecast {
+  issued_at: string
+  window_minutes: number
+  model_version: string
+  current: number | null
+  points: { minutes: number; target_at: string; p: number | null; reason: string | null }[]
+}
+
+export interface NearTermVerification {
+  attempts: number
+  completed: number
+  published: number
+  scored: number
+  brier: number | null
+  persistence_brier: number | null
+  skill_pct: number | null
 }
 
 /**
