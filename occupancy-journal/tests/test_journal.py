@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+from types import SimpleNamespace
 from unittest.mock import patch
 
 spec = importlib.util.spec_from_file_location("journal", Path(__file__).parents[1] / "journal.py")
@@ -81,6 +82,28 @@ class JournalTests(unittest.TestCase):
         self.assertEqual(result["observation_history"]["calendar_days"], 1)
         self.assertEqual(result["tracker_checks"]["Example"], {
             "available": 2, "disagree": True, "entity_present": True})
+
+    def test_panel_assets_keep_ingress_access_boundary(self):
+        outputs = []
+        handler = SimpleNamespace(path="/assets/journal.js", client_address=("192.0.2.10", 1234),
+                                  send=lambda *args: outputs.append(args))
+        journal.Handler.do_GET(handler)
+        self.assertEqual(outputs[0][0], 403)
+        self.assertNotIn("const $", str(outputs))
+
+    def test_panel_assets_have_correct_types_and_no_path_traversal(self):
+        outputs = []
+        handler = SimpleNamespace(path="/assets/journal.js", client_address=("127.0.0.1", 1234),
+                                  send=lambda *args: outputs.append(args))
+        app = Path(__file__).parents[1]
+        with patch.object(journal, "Path", side_effect=lambda value: app if value == "/app" else Path(value)):
+            journal.Handler.do_GET(handler)
+        self.assertEqual(outputs[-1][0], 200)
+        self.assertEqual(outputs[-1][2], "text/javascript; charset=utf-8")
+        self.assertIn(b"function render", outputs[-1][1])
+        handler.path = "/assets/../journal.py"
+        journal.Handler.do_GET(handler)
+        self.assertEqual(outputs[-1][0], 404)
 
 
 if __name__ == "__main__":

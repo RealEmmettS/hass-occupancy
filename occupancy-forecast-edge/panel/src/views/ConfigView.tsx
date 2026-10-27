@@ -409,8 +409,8 @@ export function ConfigView({
             <Icon name="save" />
             {saving ? 'Saving…' : 'Save'}
           </button>
-          <span className={saved ? 'saved on' : 'saved'}>Saved</span>
-          {error && <span className="error">{error}</span>}
+          <span role="status" className={saved ? 'saved on' : 'saved'}>{saved ? 'Saved' : ''}</span>
+          {error && <span role="alert" className="error">{error}</span>}
         </div>
       </form>
     </>

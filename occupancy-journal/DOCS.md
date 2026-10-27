@@ -88,3 +88,11 @@ is not proof of physical presence. History and original forecast revisions are
 preserved during the update.
 
 Version 1.0.6 shows unavailable cooling inputs as missing readings and omits absent measurements instead of displaying undefined values.
+
+Version 1.0.7 gives the history page the same local IBM Plex typography, colors,
+spacing and responsive controls as the forecast panel. Collection health and
+history span lead into resident observations, followed by cooling and exports.
+Residents outside the selected forecast are labelled separately from missing
+tracker readings. The table adapts to labelled rows on a phone. All assets are
+served through the existing ingress boundary; nothing loads from a third party.
+Refresh errors keep any previously loaded observations visible and offer a retry.

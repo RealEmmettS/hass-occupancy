@@ -182,7 +182,7 @@ def status():
             "disagree": len({s == "home" for s in states.values()}) > 1,
             "entity_present": entity in observations,
         }
-    return {"version": "1.0.6", "retention_days": RETENTION, "sample_seconds": 60,
+    return {"version": "1.0.7", "retention_days": RETENTION, "sample_seconds": 60,
             "counts": totals, "first_record": span[0], "last_record": span[1],
             "observation_history": {"first": observed_span[0], "last": observed_span[1],
                                     "calendar_days": observed_span[2], "samples_last_24h": recent,
@@ -222,6 +222,14 @@ class Handler(BaseHTTPRequestHandler):
             return self.send(403, {"error": "Use the Home Assistant sidebar"})
         if path in ("", "/"):
             return self.send(200, Path("/app/index.html").read_bytes(), "text/html; charset=utf-8")
+        assets = {
+            "/assets/journal.css": "text/css; charset=utf-8",
+            "/assets/journal.js": "text/javascript; charset=utf-8",
+            "/assets/IBMPlexSans-400-latin.woff2": "font/woff2",
+            "/assets/IBMPlexSans-500-latin.woff2": "font/woff2",
+        }
+        if path in assets:
+            return self.send(200, (Path("/app") / path.lstrip("/")).read_bytes(), assets[path])
         if path == "/api/status":
             return self.send(200, status())
         if path in ("/export.jsonl", "/export-view"):

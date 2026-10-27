@@ -1,32 +1,79 @@
-<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Occupancy history</title>
-<style>
-@media(max-width:600px){body{padding:16px!important}h1{font-size:26px!important}.card{padding:16px!important}.grid{gap:0!important}nav{gap:14px!important}.big{font-variant-numeric:tabular-nums}}
-:root{color-scheme:dark light;font:16px/1.5 system-ui;background:light-dark(#f5f7fa,#10151e);color:light-dark(#172235,#edf3fb)}
-body{max-width:1050px;margin:0 auto;padding:28px}h1{font-size:30px;letter-spacing:-.7px;margin-bottom:4px}h2{font-size:19px}p{max-width:850px}a{color:light-dark(#075fc4,#83baff)}
-.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:16px}.card,details{background:light-dark(white,#1b2330);border:1px solid light-dark(#dce3ec,#344156);padding:20px;border-radius:12px;margin:14px 0}.notice{border-left:4px solid #d59d44}.big{font-size:30px;font-weight:650}.muted{opacity:.75;font-size:14px}table{width:100%;border-collapse:collapse}td,th{text-align:left;padding:10px 8px;border-bottom:1px solid #52607755}pre{overflow:auto;max-height:400px;font-size:12px}nav{display:flex;gap:20px;flex-wrap:wrap;margin:20px 0}button{padding:9px 16px;cursor:pointer;border-radius:7px;border:1px solid #63738b;background:transparent;color:inherit}.badge{font-weight:600;color:light-dark(#176139,#8bdcb0)}
-</style>
-<h1>Occupancy history</h1><p>Presence, published forecasts, and collection health · <span class="badge">Observation only</span></p>
-<nav><a id="forecast-link" hidden target="_top">Forecast &amp; accuracy charts</a><a href="/velair" target="_top">Velair</a><a href="./export-view?days=7">View 7-day JSONL export</a><a href="./export-view?days=90">View up to 90 days</a><button id="refresh">Refresh</button></nav>
-<p class="muted">Exports open as a readable page of JSONL records that you can copy into a .jsonl file. Select Occupancy history in the sidebar to return.</p>
-<div class="card notice"><strong id="coverage">Checking resident coverage…</strong> <span id="coverage-detail"></span> An “away” forecast does not establish that the residence is empty. Phone tracking is an observation, not perfect ground truth.</div>
-<p id="message" role="status">Loading journal…</p><div class="grid" id="stats"></div>
-<section class="card"><h2>Resident observations</h2><div style="overflow:auto"><table><thead><tr><th>Resident</th><th>Reported state</th><th>Tracker agreement</th><th>State last updated</th></tr></thead><tbody id="people"></tbody></table></div><p class="muted">A phone can stay unchanged while at home. Old timestamps alone do not prove it is stale. Agreement compares home versus away across available trackers. Disagreement flags an input worth checking; it does not tell us which phone is right.</p></section>
-<section class="card"><h2>Cooling observations</h2><div id="cooling"></div><p class="muted">The journal records temperatures, targets, humidity and reported HVAC activity. Velair estimates time needed to reach scheduled temperatures; Occupancy Forecast estimates future presence. The experiment sends no thermostat commands.</p></section>
-<section class="card"><h2>How to evaluate</h2><p>Open <strong>Forecast &amp; accuracy charts → Was it right?</strong> to compare served hourly predictions with later observed occupancy. A blank curve or unknown ETA is not a prediction. Models require at least 10 days of usable history and must pass their publication checks.</p><p>The built-in chart keeps 30 days. This journal samples once a minute and preserves changed forecast snapshots (including issue time and ETA), presence and cooling observations for 90 days. It can miss forecast revisions or trips shorter than the sample interval. Exports use UTC timestamps; this page shows your browser's local time.</p><p>Review input coverage first, then +1, +3 and +6 hour accuracy and the share of hours that actually receive forecasts. Check arrivals against phone history and compare with a simple “same as now” prediction. Cooling energy savings remain untested.</p></section>
-<details><summary>Latest forecast as captured</summary><pre id="forecast"></pre></details><details><summary>Collection details</summary><pre id="details"></pre></details>
-<script>
-const fmt=t=>t?new Date(t).toLocaleString():'No record';
-function cell(tr,text){let td=document.createElement('td');td.textContent=text??'Unknown';tr.append(td)}
-async function refresh(){try{let r=await fetch('./api/status');if(!r.ok)throw Error('HTTP '+r.status);let d=await r.json();let age=d.runtime.last_cycle?(Date.now()-Date.parse(d.runtime.last_cycle))/1000:Infinity;
-document.querySelector('#message').textContent=(age<180?'Collecting':'Journal needs attention')+' · last sample '+fmt(d.runtime.last_cycle)+(Object.keys(d.runtime.errors).length?' · source errors: '+JSON.stringify(d.runtime.errors):' · sources responding');
-document.querySelector('#coverage').textContent=d.forecast_members.length+' of '+Object.keys(d.residents).length+' residents are selected for forecasts.';
-document.querySelector('#coverage-detail').textContent='Forecast “house” covers '+(d.forecast_members.join(' + ')||'no configured members')+'. '+(d.missing_inputs.length?'Missing inputs: '+d.missing_inputs.join(', ')+'.':'');
-let link=document.querySelector('#forecast-link');if(d.forecast_panel){link.href=d.forecast_panel;link.hidden=false}
-let stats=document.querySelector('#stats');stats.replaceChildren();for(let [label,value,sub] of [['Recorded history',(d.observation_history?.calendar_days||0)+' days',fmt(d.observation_history?.first)+' — '+fmt(d.observation_history?.last)],['Last 24 hours',(Math.min(100,100*(d.observation_history?.samples_last_24h||0)/1440)).toFixed(1)+'%',(d.observation_history?.samples_last_24h||0)+' of 1,440 expected samples'],['Forecast snapshots',(d.counts.forecast||0).toLocaleString(),d.retention_days+' days retained · '+(d.bytes/1048576).toFixed(1)+' MiB']]){let card=document.createElement('div');card.className='card';let title=document.createElement('div');title.textContent=label;let n=document.createElement('div');n.className='big';n.textContent=value;let p=document.createElement('div');p.className='muted';p.textContent=sub;card.append(title,n,p);stats.append(card)}
-let obs=d.latest.observations?.value||{};let people=document.querySelector('#people');people.replaceChildren();for(let [name,id] of Object.entries(d.residents)){let s=obs[id];let tr=document.createElement('tr');cell(tr,name);cell(tr,s?.state||'No configured tracker');let check=d.tracker_checks?.[name];cell(tr,check?.disagree?'Trackers disagree':check?.available>1?'Trackers agree':check?.available===1?'One available tracker':check?.entity_present?'No available tracker':'Entity missing');tr.title=s?.attributes.source||'';cell(tr,fmt(s?.last_updated));people.append(tr)}
-let cooling=document.querySelector('#cooling');cooling.replaceChildren();for(let [id,s] of Object.entries(obs)){if(!id.startsWith('climate.'))continue;let p=document.createElement('p');let a=s.attributes;let label=a.friendly_name||id;p.textContent=['unknown','unavailable'].includes(s.state)?label+': No current reading':[label+': '+s.state,a.current_temperature!=null?'room '+a.current_temperature+'°F':'',a.temperature!=null?'target '+a.temperature+'°F':'',a.current_humidity!=null?a.current_humidity+'% RH':'',a.hvac_action||''].filter(Boolean).join(' · ');cooling.append(p)}
-document.querySelector('#forecast').textContent=JSON.stringify(d.latest.forecast,null,2);document.querySelector('#details').textContent=JSON.stringify({first_record:d.first_record,last_record:d.last_record,counts:d.counts,runtime:d.runtime,missing_inputs:d.missing_inputs,forecast_status:d.latest.forecast_status},null,2);
-}catch(e){document.querySelector('#message').textContent='Unable to read journal: '+e.message}}
-document.querySelector('#refresh').addEventListener('click',refresh);refresh();setInterval(refresh,60000);
-</script></html>
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>Occupancy history</title>
+  <link rel="stylesheet" href="./assets/journal.css">
+  <script src="./assets/journal.js" defer></script>
+</head>
+<body>
+<div class="wrap">
+  <a class="skip-link" href="#main-content">Skip to content</a>
+  <header class="head">
+    <div><h1>Occupancy history</h1><p class="sub">The observations behind your forecasts.</p></div>
+    <button id="refresh" type="button">Refresh</button>
+    <nav aria-label="Occupancy pages">
+      <a id="forecast-link" hidden target="_top">Forecast &amp; accuracy</a>
+      <a href="./" aria-current="page">History</a>
+      <a href="#exports">Export records</a>
+    </nav>
+  </header>
+  <main id="main-content" tabindex="-1">
+    <div class="collection-status" id="collection-status">
+      <span class="status-dot" aria-hidden="true"></span>
+      <p id="message" role="status">Loading journal…</p>
+      <span class="collection-cadence">Sampled every minute</span>
+    </div>
+    <section class="card history-summary" aria-label="Collection summary">
+      <div class="stats" id="stats"><p class="muted">Reading the collection record…</p></div>
+    </section>
+    <section class="card" aria-labelledby="residents-title">
+      <h2 id="residents-title">Resident observations</h2>
+      <p class="subtitle">What each person’s trackers most recently reported.</p>
+      <div class="coverage-note"><strong id="coverage">Checking forecast coverage…</strong><p id="coverage-detail"></p></div>
+      <table class="residents">
+        <caption class="sr-only">Resident presence, tracker agreement, and last state update</caption>
+        <thead><tr><th id="col-resident" scope="col">Resident</th><th id="col-state" scope="col">Reported state</th><th id="col-agreement" scope="col">Tracker agreement</th><th id="col-updated" scope="col">State updated</th></tr></thead>
+        <tbody id="people"></tbody>
+      </table>
+      <p class="note">“Tracked residents” covers the selected people only. An away forecast does not establish that the whole home is empty.</p>
+      <p class="note">An unchanged timestamp can be normal while someone is at home. Tracker disagreement identifies an input to check; it does not establish which reading is right.</p>
+    </section>
+    <div class="support-grid">
+      <section class="card" aria-labelledby="cooling-title">
+        <h2 id="cooling-title">Cooling observations</h2>
+        <p class="subtitle">Recorded conditions alongside the presence history.</p>
+        <div id="cooling"><p class="muted">Loading readings…</p></div>
+        <p class="note">This journal observes only. It sends no thermostat commands.</p>
+        <a class="text-link" href="/velair" target="_top">Open Velair</a>
+      </section>
+      <section class="card" id="exports" aria-labelledby="exports-title">
+        <h2 id="exports-title">Export the record</h2>
+        <p class="subtitle">Presence readings, forecast revisions, and collection health.</p>
+        <div class="export-actions">
+          <a class="button primary" href="./export-view?days=7">View last 7 days</a>
+          <a class="button" id="full-export" href="./export-view?days=90">View retained history</a>
+        </div>
+        <p class="note">Exports open as readable JSONL. Copy the records into a .jsonl file to save them. Export timestamps use UTC; this page uses your local time.</p>
+        <p class="export-footnote" id="retention-note"></p>
+      </section>
+    </div>
+    <section class="reading-guide" aria-labelledby="guide-title">
+      <div><h2 id="guide-title">Read the evidence in order</h2><p class="subtitle">Good input coverage comes before a confident accuracy claim.</p></div>
+      <ol>
+        <li><h3>Check the observations</h3><p>Review selected residents, missing readings, and tracker agreement.</p></li>
+        <li><h3>Compare completed predictions</h3><p>Use the forecast page’s near-term and hourly accuracy views. Check both error and published coverage against staying put.</p></li>
+        <li><h3>Keep the limits in view</h3><p>A blank forecast or unknown ETA is not a prediction. Minute sampling can miss short trips or forecast revisions. Cooling energy savings remain untested.</p></li>
+      </ol>
+    </section>
+    <div class="diagnostics">
+      <details><summary>Latest captured forecast</summary><pre id="forecast">No captured forecast yet.</pre></details>
+      <details><summary>Collection details</summary><pre id="details">Waiting for collection details.</pre></details>
+    </div>
+  </main>
+  <footer>Occupancy history <span id="version"></span><span>Observation only</span></footer>
+</div>
+</body>
+</html>

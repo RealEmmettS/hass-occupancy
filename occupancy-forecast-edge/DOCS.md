@@ -79,3 +79,16 @@ precise arrival or departure time.
 
 The existing hourly forecast remains separate. Read
 [`docs/NEAR_TERM.md`](../docs/NEAR_TERM.md) for qualification and record details.
+
+## Reading the refreshed panel
+
+Version 0.1.8 places current presence and the next two hours first, followed by
+the hourly curve, expected changes, and hourly accuracy. Collection and model
+controls remain available below. Overview, Data, and Setup support keyboard
+navigation, and the layout adapts to phones and light/dark system themes.
+
+Both accuracy views keep raw error and coverage visible. A percentage against
+staying put is displayed only after 30 matched forecasts and when the baseline
+error exceeds 0.000001. Earlier comparisons say **Early data**; a nearly perfect
+baseline is labelled explicitly. This is a display safeguard, not a statistical
+significance test or a change to model qualification.

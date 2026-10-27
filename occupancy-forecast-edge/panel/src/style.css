@@ -83,8 +83,8 @@
 
   color-scheme: light dark;
 
-  --spacing: 12px;
-  --card-radius: 12px;
+  --spacing: 16px;
+  --card-radius: 16px;
   --icon-size: 36px;
   --icon-symbol-size: 21px;
   --control-height: 42px;
@@ -93,10 +93,10 @@
   --chip-radius: 19px;
 
   --primary-size: 14px;   --primary-weight: 500;
-  --secondary-size: 12px; --secondary-weight: 400;
-  --title-size: 24px;     --subtitle-size: 16px;
+  --secondary-size: 13px; --secondary-weight: 400;
+  --title-size: 30px;     --subtitle-size: 18px;
 
-  --bg: #fafafa;
+  --bg: #f4f6f5;
   --card: #fff;
   /* The popup's own surface. On light it can be the card colour, because the
      shadow does the separating. On dark a shadow is nearly invisible and a
@@ -104,38 +104,36 @@
      so there it is a step lighter instead. */
   --popup: #fff;
   --popup-edge: rgba(130, 130, 130, .25);
-  --text: #212121;
-  --text-2: #727272;
+  --text: #202b27;
+  --text-2: #5d6c65;
 
-  --rgb-aqua: 25,158,112;
-  --rgb-blue: 57,135,229;
-  --rgb-orange: 217,89,38;
-  --rgb-red: 219,68,55;
+  --rgb-aqua: 17,116,85;
+  --rgb-blue: 35,101,186;
+  --rgb-orange: 164,77,32;
+  --rgb-red: 183,56,47;
   --rgb-grey: 130,130,130;
 }
 @media (prefers-color-scheme: dark) {
-  :root { --bg: #111; --card: #1c1c1c; --text: #e1e1e1; --text-2: #9b9b9b;
-          --popup: #2b2b2b; --popup-edge: rgba(190, 190, 190, .22); }
+  :root { --bg: #151a18; --card: #1f2622; --text: #e8efea; --text-2: #acb9b1;
+          --popup: #2e3832; --popup-edge: rgba(190, 190, 190, .22);
+          --rgb-aqua: 101,210,168; --rgb-blue: 121,174,241;
+          --rgb-orange: 237,164,116; --rgb-red: 245,142,129; }
 }
 
 * { box-sizing: border-box; }
-body { margin: 0; padding: var(--spacing);
-       font: 14px/1.5 var(--sans);
+body { margin: 0; padding: clamp(16px, 3vw, 32px);
+       font: 15px/1.5 var(--sans);
        background: var(--bg); color: var(--text); }
 
-/* No max-width. The panel is a grid of cards in an iframe the user sized, and
-   capping it at a reading column left three cramped columns on a desktop while
-   the rest of the window sat empty. The track minimum below does the shaping.
+/* A shared reading width keeps charts and tables legible on wide monitors.
+   Every grid track may shrink to the available width on a phone. */
+.wrap { margin: 0 auto; max-width: 80rem; }
 
-   `.steps` is the one exception and does cap itself, because a single column is
-   a different shape from a grid: there is no second track to fill, so the width
-   goes entirely into stretching one chart and one line of prose. See there. */
-.wrap { margin: 0 auto; }
-
-.head { display: flex; align-items: center; gap: var(--spacing);
-        padding: 12px 4px 20px; flex-wrap: wrap; }
-h1 { font-size: var(--title-size); font-weight: 400; line-height: 1.2; margin: 0; }
-.head .sub { font-size: var(--subtitle-size); color: var(--text-2); margin: 2px 0 0; }
+.head { display: flex; align-items: center; gap: 20px;
+        padding: 4px 0 24px; flex-wrap: wrap; }
+h1 { font-size: var(--title-size); font-weight: 500; line-height: 1.2; letter-spacing: -.025em; margin: 0; }
+.head .sub { font-size: 15px; color: var(--text-2); margin: 8px 0 0; }
+.head-meta { font-size: 13px; color: var(--text-2); margin: 0 0 0 auto; }
 
 /* The two tabs. `margin-left: auto` rather than a grid column because .head is
    a flex row of two items and the strip is simply the third, pushed to the far
@@ -147,8 +145,8 @@ h1 { font-size: var(--title-size); font-weight: 400; line-height: 1.2; margin: 0
    has nothing to query, so the window is the only signal there is. The other one
    drops the walkthrough's rail for exactly the same reason -- a step is not in a
    card either. Anything INSIDE a card is a container query, and stays one. */
-.tabs { display: flex; gap: 6px; margin-left: auto; }
-.tab { background: transparent; color: var(--text-2); padding: 0 16px; }
+.tabs { display: flex; gap: 8px; width: 100%; border-bottom: 1px solid rgba(var(--rgb-grey), .24); padding-bottom: 8px; }
+.tab { background: transparent; color: var(--text-2); padding: 0 16px; border-radius: 8px; }
 .tab:hover { background: rgba(var(--rgb-grey), .12); }
 .tab svg { fill: currentColor; }
 /* The selected tab is the aqua pill the Save button already is, so "this is the
@@ -166,7 +164,7 @@ h1 { font-size: var(--title-size); font-weight: 400; line-height: 1.2; margin: 0
    Home Assistant entity, which needs about 28rem to sit on one line. At 20rem
    every card was born too narrow for its own contents. */
 .cards { display: grid; gap: var(--spacing); margin-bottom: var(--spacing);
-         grid-template-columns: repeat(auto-fit, minmax(24rem, 1fr));
+         grid-template-columns: repeat(auto-fit, minmax(min(100%, 24rem), 1fr));
          /* Each card is as tall as its own contents. Stretched to the row's
             tallest, a three-row Status card next to a six-row one was mostly
             empty white. */
@@ -277,7 +275,7 @@ h1 { font-size: var(--title-size); font-weight: 400; line-height: 1.2; margin: 0
    which is a different-looking page for no reason but how much history there
    is. 20rem is an entity id plus its shape plus the chip. */
 .pickers { display: grid; gap: 2px; margin-top: 2px;
-           grid-template-columns: repeat(auto-fill, minmax(20rem, 1fr)); }
+           grid-template-columns: repeat(auto-fill, minmax(min(100%, 20rem), 1fr)); }
 
 /* The tile is the button, so it has to undo the aqua pill every <button> on
    this page inherits -- the same override .tab and button.secondary make. Height
@@ -355,14 +353,14 @@ h1 { font-size: var(--title-size); font-weight: 400; line-height: 1.2; margin: 0
    replaced: a viewport media query never fires on a wide desktop, where the
    window is 1400px and the card holding the squeezed row is 380px. */
 .card { background: var(--card); border-radius: var(--card-radius);
-        padding: var(--spacing); align-content: start;
+        padding: 24px; align-content: start; min-width: 0;
         container-type: inline-size; }
 .card > .title { font-size: var(--subtitle-size); font-weight: 500;
-                 margin: 4px 4px 2px; }
+                 margin: 0 0 8px; letter-spacing: -.015em; }
 .card > .title small { font-size: var(--secondary-size); font-weight: 400;
                        color: var(--text-2); }
 .card > .subtitle { font-size: var(--secondary-size); color: var(--text-2);
-                    line-height: 1.45; margin: 0 4px 10px; }
+                    line-height: 1.5; margin: 0 0 20px; }
 
 .row { display: flex; align-items: center; gap: var(--spacing);
        padding: 6px 4px; border-radius: var(--control-radius); }
@@ -768,23 +766,66 @@ details.more > summary { font-size: var(--secondary-size); color: var(--text-2);
 details.more > summary:hover { background: rgba(var(--rgb-grey), .12);
                                color: var(--text); }
 
-/* Keep accuracy, coverage, and the comparison in the visible scan path. */
-.verification-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 18px 0 12px; }
-.verification-stats > div { display: flex; flex-direction: column; gap: 6px; padding: 14px; border: 1px solid var(--divider-color, #8884); border-radius: 12px; }
-.verification-stats span, .verification-stats small, .verification-note { font-size: 12px; line-height: 1.5; color: var(--secondary-text-color, #888); }
-.verification-stats strong { font-size: 23px; font-weight: 500; font-variant-numeric: tabular-nums; }
-.verification-note { margin: 8px 0 16px; }
-@media (max-width: 600px) { .verification-stats { grid-template-columns: 1fr; } .verification-stats > div { gap: 3px; } }
 
-.near-subjects { display: flex; flex-wrap: wrap; gap: 8px; margin: 4px 0 12px; }
-.near-subjects button { padding: 9px 14px; border-radius: 20px; font-size: 13px; }
-.near-subjects button[aria-pressed="true"], .near-points button[aria-pressed="true"] { background: rgba(var(--rgb-blue), .16); box-shadow: inset 0 0 0 1px rgba(var(--rgb-blue), .65); }
+/* Overview hierarchy and compact comparison rows. */
+.overview-stack { gap: 24px; }
+.presence-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 24px; }
+.presence-person h3 { font-size: 14px; font-weight: 500; margin: 4px 0 8px; overflow-wrap: anywhere; }
+.presence-state { display: flex; align-items: center; gap: 10px; font-size: 26px; font-weight: 500; margin: 0; }
+.presence-state i { width: 9px; height: 9px; border-radius: 50%; background: rgb(var(--rgb-grey)); }
+.presence-state.home i { background: rgb(var(--rgb-aqua)); }
+.presence-state.away i { background: rgb(var(--rgb-orange)); }
+.presence-next, .scope-note { font-size: 13px; color: var(--text-2); margin: 8px 0 0; }
+.scope-note { margin-top: 20px; padding-top: 12px; border-top: 1px solid rgba(var(--rgb-grey), .18); }
+.section-heading { margin: 16px 0 -8px; }
+.section-heading h2 { font-size: 20px; font-weight: 500; margin: 0; }
+.section-heading p { color: var(--text-2); font-size: 14px; margin: 4px 0; }
+.model-support { grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; }
+.verification-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 24px; margin: 20px 0; }
+.verification-stats > div { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.verification-stats span, .verification-stats small, .verification-note { font-size: 13px; line-height: 1.5; color: var(--text-2); }
+.verification-stats strong { font-size: clamp(20px, 2vw, 26px); font-weight: 500; font-variant-numeric: tabular-nums; line-height: 1.2; overflow-wrap: anywhere; }
+.verification-note { margin: 8px 0 16px; max-width: 90ch; }
+.near-subjects { display: flex; flex-wrap: wrap; gap: 4px; margin: 4px 0 16px; }
+.near-subjects button { padding: 8px 14px; border-radius: 8px; font-size: 14px; background: transparent; color: var(--text-2); }
+.near-subjects button:hover { background: rgba(var(--rgb-grey), .12); color: var(--text); }
+.near-subjects button[aria-pressed="true"] { background: rgba(var(--rgb-aqua), .14); color: rgb(var(--rgb-aqua)); }
 .near-points { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 8px; margin: 16px 0; }
-.near-points button { min-width: 0; height: auto; min-height: 110px; padding: 14px 4px; display: flex; flex-direction: column; align-items: center; gap: 7px; border-radius: 12px; background: rgba(var(--rgb-grey), .09); }
-.near-points span, .near-points small { color: var(--text-2); font-size: 12px; }
-.near-points strong { color: var(--text); font-size: 23px; font-weight: 500; font-variant-numeric: tabular-nums; }
-.near-record { margin-top: 20px; padding-top: 14px; border-top: 1px solid rgba(var(--rgb-grey), .25); }
-.near-record h3 { font-size: 14px; font-weight: 500; margin: 0 0 10px; }
-.near-record h3 small { margin-left: 8px; color: var(--text-2); font-weight: 400; }
-@media (max-width: 720px) { .near-points { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+.near-points button { min-width: 0; height: auto; min-height: 136px; padding: 16px 10px; display: flex; flex-direction: column; align-items: stretch; gap: 12px; border-radius: 10px; background: rgba(var(--rgb-grey), .07); text-align: left; box-shadow: inset 0 0 0 1px transparent; }
+.near-points button:hover { background: rgba(var(--rgb-aqua), .08); transform: translateY(-2px); }
+.near-points button[aria-pressed="true"] { background: rgba(var(--rgb-aqua), .11); box-shadow: inset 0 0 0 1px rgba(var(--rgb-aqua), .5); }
+.near-points span, .near-points small { color: var(--text-2); font-size: 12px; font-weight: 400; }
+.near-points strong { color: var(--text); font-size: 26px; font-weight: 500; line-height: 1; font-variant-numeric: tabular-nums; }
+.probability-meter { display: block; height: 3px; background: rgba(var(--rgb-grey), .18); overflow: hidden; border-radius: 2px; }
+.probability-meter i { display: block; height: 100%; background: rgb(var(--rgb-aqua)); }
+.near-record { margin-top: 24px; padding-top: 20px; border-top: 1px solid rgba(var(--rgb-grey), .22); }
+.near-record h3 { font-size: 15px; font-weight: 500; margin: 0 0 12px; }
+.near-record h3 small { margin-left: 8px; color: var(--text-2); font-weight: 400; font-size: 13px; }
+button, a, summary { touch-action: manipulation; }
+button, summary { transition: background-color 160ms ease, color 160ms ease, transform 160ms ease; }
+:where(button, a, input, select, summary, [tabindex]):focus-visible { outline: 2px solid rgb(var(--rgb-aqua)); outline-offset: 4px; }
+h1, h2, h3 { text-wrap: balance; }
+p { text-wrap: pretty; }
+.skip-link { position: fixed; top: 8px; left: 16px; transform: translateY(-150%); background: var(--card); padding: 12px; z-index: 10; color: var(--text); }
+.skip-link:focus { transform: translateY(0); }
+.view-content { animation: enter-view 160ms ease-out; }
+@keyframes enter-view { from { opacity: .4; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+@media (max-width: 900px) { .near-points { grid-template-columns: repeat(4, minmax(0, 1fr)); } .model-support { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 600px) {
+  .card { padding: 20px 16px; }
+  .head-meta { margin-left: 0; width: 100%; }
+  .head { gap: 12px; }
+  .head h1 { font-size: 26px; }
+  .presence-list { gap: 16px; }
+  .presence-person { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; }
+  .presence-person h3 { margin: 0; }
+  .presence-state { font-size: 20px; }
+  .presence-next { grid-column: 1 / -1; margin-top: 4px; }
+  .verification-stats { grid-template-columns: 1fr; gap: 16px; }
+  .verification-stats > div { gap: 4px; }
+  .near-points button { padding: 12px 8px; min-height: 124px; }
+  .near-points strong { font-size: 22px; }
+  .near-points span, .near-points small { font-size: 12px; }
+}
 @media (max-width: 360px) { .near-points { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; } }
