@@ -24,10 +24,10 @@ export function Card({
   return (
     <section className="card">
       {title && (
-        <div className="title">
+        <h2 className="title">
           {title}
           {optional && <small> optional</small>}
-        </div>
+        </h2>
       )}
       {subtitle && <p className="subtitle">{subtitle}</p>}
       {children}

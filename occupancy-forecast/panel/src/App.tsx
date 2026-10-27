@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { getCandidates, getSettings, getStatus, saveConfig } from './api'
 import type { Candidates, Settings, Status } from './types'
-import { Icon, Shape } from './components/Icon'
+import { Icon } from './components/Icon'
 import { ConfigView } from './views/ConfigView'
 import { DataView } from './views/DataView'
 import { OverviewView } from './views/OverviewView'
@@ -17,7 +17,7 @@ const POLL_MS = 10_000
 const POLL_MS_TRAINING = 3_000
 
 /**
- * The two questions the panel answers, and the only navigation it has.
+ * Overview, supporting data, and configuration share one navigation strip.
  *
  * Deliberately not persisted. A hash would push entries into the *top-level*
  * history from inside an iframe, so Back would step through tab changes instead
@@ -31,8 +31,8 @@ const VIEWS = [
   // Overview first, and the default: it is the one people keep open. Setup is
   // a thing you do once.
   { id: 'overview', label: 'Overview', icon: 'house' },
-  { id: 'config', label: 'Setup', icon: 'tune' },
   { id: 'data', label: 'Data', icon: 'chart' },
+  { id: 'config', label: 'Setup', icon: 'tune' },
 ] as const
 
 type View = (typeof VIEWS)[number]['id']
@@ -147,19 +147,16 @@ export function App() {
 
   return (
     <div className="wrap">
+      <a className="skip-link" href="#main-content">Skip to content</a>
       <header className="head">
-        <Shape name="logo" accent="aqua" />
         <div>
-          {/* No fallback string: two add-ons serve identical-looking panels and
-              only this name separates them, so it comes from the server or not
-              at all. */}
-          <h1>{status?.display_name ?? ' '}</h1>
-          <p className="sub">Who is home, and who is coming home.</p>
+          {/* The server identifies stable versus edge once status arrives. */}
+          <h1>{status?.display_name ?? 'Occupancy'}</h1>
+          <p className="sub">Current presence and upcoming forecasts.</p>
         </div>
+        <p className="head-meta">{status?.training_in_progress ? 'Updating models…' : 'Observation only'}</p>
 
-        {/* Two buttons, so no roving tabindex: they are already keyboard
-            reachable in order, and the arrow-key pattern would be a regression
-            over that rather than an improvement. */}
+        {/* Arrow keys move between the three tabs; Tab leaves the tab list. */}
         <nav className="tabs" role="tablist" aria-label="Sections">
           {VIEWS.map((v) => (
             <button
@@ -170,6 +167,18 @@ export function App() {
               className="tab"
               aria-selected={view === v.id}
               aria-controls={`panel-${v.id}`}
+              tabIndex={view === v.id ? 0 : -1}
+              onKeyDown={(event) => {
+                const index = VIEWS.findIndex(item => item.id === view)
+                const next = event.key === 'ArrowRight' ? (index + 1) % VIEWS.length
+                  : event.key === 'ArrowLeft' ? (index + VIEWS.length - 1) % VIEWS.length
+                    : event.key === 'Home' ? 0 : event.key === 'End' ? VIEWS.length - 1 : null
+                if (next === null) return
+                event.preventDefault()
+                const target = VIEWS[next]!
+                setView(target.id)
+                document.getElementById(`tab-${target.id}`)?.focus()
+              }}
               onClick={() => setView(v.id)}
             >
               <Icon name={v.icon} />
@@ -179,7 +188,8 @@ export function App() {
         </nav>
       </header>
 
-      <div role="tabpanel" id={`panel-${view}`} aria-labelledby={`tab-${view}`}>
+      <main id="main-content" tabIndex={-1}>
+      <div className="view-content" key={view} role="tabpanel" id={`panel-${view}`} aria-labelledby={`tab-${view}`}>
         {view === 'config' ? (
           <ConfigView
             status={status}
@@ -212,6 +222,7 @@ export function App() {
           <OverviewView status={status} refreshStatus={refreshStatus} />
         )}
       </div>
+      </main>
     </div>
   )
 }

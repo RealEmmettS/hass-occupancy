@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { ComparisonMetric } from './ComparisonMetric'
 import { getVerification } from '../api'
 import type { Status, Verification as VerificationData } from '../types'
 import { Card } from './Card'
@@ -51,22 +52,23 @@ export function VerificationCard({ status, defaultHorizon = 6 }: {
   const [horizonInput, setHorizonInput] = useState<number>(defaultHorizon)
   const horizon = useDebounced(horizonInput, 250)
   const [days, setDays] = useState<string>('7')
-  const [data, setData] = useState<VerificationData | null>(null)
-  const [error, setError] = useState<string | null>(null)
+  const [result, setResult] = useState<{ key: string; data: VerificationData } | null>(null)
+  const [failure, setFailure] = useState<{ key: string; message: string } | null>(null)
 
   const subjects = ['house', ...(status?.people ?? [])]
   const chosen = subject || subjects[0] || ''
+  const requestKey = `${chosen}:${horizon}:${days}`
+  const data = result?.key === requestKey && horizon === horizonInput ? result.data : null
+  const error = failure?.key === requestKey ? failure.message : null
 
   useEffect(() => {
     if (!chosen) return
     let live = true
-    setData(null)
-    setError(null)
     getVerification(chosen, horizon, Number(days))
-      .then((v) => { if (live) setData(v) })
-      .catch((e: Error) => { if (live) setError(e.message) })
+      .then((v) => { if (live) { setResult({ key: requestKey, data: v }); setFailure(null) } })
+      .catch((e: Error) => { if (live) setFailure({ key: requestKey, message: e.message }) })
     return () => { live = false }
-  }, [chosen, horizon, days])
+  }, [chosen, horizon, days, requestKey])
 
   // What the slider's own line says. It is about THIS horizon's record rather
   // than the chart's contents, so it stays useful while the fetch is in flight.
@@ -85,7 +87,7 @@ export function VerificationCard({ status, defaultHorizon = 6 }: {
   })()
 
   return (
-    <Card title="Was it right?" subtitle="Published predictions compared with completed observations. Lower probability error is better.">
+    <Card title="Hourly forecast accuracy" subtitle="Published predictions compared with later tracker readings.">
       {/* The same control rows the Data tab's cards use, rather than a bare
           pair of selects: a `Select` is wide enough to need a line of its own,
           which is exactly what `Row control` is for. */}
@@ -123,7 +125,7 @@ export function VerificationCard({ status, defaultHorizon = 6 }: {
       {data?.available && <div className="verification-stats">
         <div><span>Probability error</span><strong>{data.brier?.toFixed(3) ?? '—'}</strong><small>Brier score · lower is better</small></div>
         <div><span>Forecast coverage</span><strong>{data.slots ? `${Math.round(100 * data.served / data.slots)}%` : '—'}</strong><small>{data.scored} completed observations scored</small></div>
-        <div><span>Compared with staying put</span><strong>{data.skill_vs_persistence_pct == null ? 'Collecting' : `${Math.abs(data.skill_vs_persistence_pct).toFixed(0)}% ${data.skill_vs_persistence_pct >= 0 ? 'better' : 'worse'}`}</strong><small>{data.comparison_scored ? `Same ${data.comparison_scored} forecasts · issue-time baseline` : 'Comparison starts with this update'}</small></div>
+        <ComparisonMetric count={data.comparison_scored} baseline={data.persistence_brier} skill={data.skill_vs_persistence_pct} />
       </div>}
       {data?.available && data.lead_minutes_min != null && <p className="verification-note">
         These forecasts were issued {Math.round(data.lead_minutes_min)}–{Math.round(data.lead_minutes_max ?? data.lead_minutes_min)} minutes before their target slot. Only completed slots are scored.

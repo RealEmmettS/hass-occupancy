@@ -148,7 +148,7 @@ export function Training({
       </div>
 
       {(message || failed) && (
-        <p className={failed ? 'empty error' : 'empty'}>{failed ?? message}</p>
+        <p role="status" className={failed ? 'empty error' : 'empty'}>{failed ?? message}</p>
       )}
     </>
   )

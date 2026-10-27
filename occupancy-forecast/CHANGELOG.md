@@ -1,3 +1,10 @@
+# 0.1.8 — Clearer occupancy pages
+
+- Put current presence and the next two hours first, followed by hourly forecasts and accuracy.
+- Improve phone layouts, keyboard navigation, light/dark themes and reduced-motion behavior.
+- Group training and collection controls below the forecast, while retaining Data and Setup.
+- Show error and coverage alongside sparse-data and near-perfect-baseline labels instead of misleading percentage comparisons.
+- Preserve model outputs, publication rules, history and configuration.
 # 0.1.7 — Preserve publication order after retraining
 
 - Serialize scheduled, manual and training-completion prediction cycles.

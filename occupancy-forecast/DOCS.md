@@ -509,3 +509,15 @@ The hourly curve and travel ETA remain separate. Finer intervals do not imply
 precise arrival/departure times. See
 [the near-term guide](https://github.com/RealEmmettS/hass-occupancy/blob/main/docs/NEAR_TERM.md)
 for qualification, retention and API details.
+## Reading the refreshed panel
+
+Version 0.1.8 places current presence and the next two hours first, followed by
+the hourly curve, expected changes, and hourly accuracy. Collection and model
+controls remain available below. Overview, Data, and Setup support keyboard
+navigation, and the layout adapts to phones and light/dark system themes.
+
+Both accuracy views keep raw error and coverage visible. A percentage against
+staying put is displayed only after 30 matched forecasts and when the baseline
+error exceeds 0.000001. Earlier comparisons say **Early data**; a nearly perfect
+baseline is labelled explicitly. This is a display safeguard, not a statistical
+significance test or a change to model qualification.
