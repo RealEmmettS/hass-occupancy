@@ -40,6 +40,29 @@ forecast. Training itself continues separately and existing artifacts remain val
 
 ## Live evidence
 
+### Observed stay-home routines (0.1.9)
+
+The `near-term-2` head can conservatively adjust the 60- and 120-minute
+probabilities while a subject is already known home. It looks for at least three
+completed, observed matching local weekdays within 90 clock minutes of the issue
+time. Every available target in that comparison must have remained home; each
+date counts once. The adjustment is bounded and retains the base probability as
+a prior. A reported away/unknown state, direction away, or a positive 15-minute
+distance change over 50 metres bypasses it.
+
+This is learned from private history, without hard-coded resident identities or
+weekday schedules. It is selected separately per subject/lead only if it reduces
+chronological validation error, wins a strict majority of folds against the base
+model, and passes the unchanged strongest-baseline publication gate. Metrics
+expose the base/adjusted errors, fold wins and `retention` selection. Other leads
+keep their existing model behavior.
+
+Compatible `near-term-1` artifacts remain usable until a new fit is ready and
+retain their original version label. `POST /train?near_only=1&background=1`
+refreshes only this head, using the normal training lock and ordered publication
+path, while preserving the fitted hourly, ETA and outing models. The ordinary
+training endpoint and scheduled full retrain keep their existing behavior.
+
 `GET api/forecast` includes `subjects[].near_term`, with issue time, exact target
 times, five-minute window duration, model version and reasons for withheld points.
 MQTT attributes include the same object. The existing journal preserves the full

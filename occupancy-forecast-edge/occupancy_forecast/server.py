@@ -381,7 +381,21 @@ def _next_train(now: dt.datetime, days: float) -> str | None:
     return candidate.isoformat(timespec="minutes")
 
 
-def _start_background_train() -> None:
+def do_train_near_term() -> dict:
+    """Refresh only the separate near-term head, preserving the other fits."""
+    refusal = _too_little_history()
+    if refusal is not None:
+        raise refusal
+    _state["training_started_at"] = dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
+    summary = near_term.train_all(_state["source"], config.MODELS_DIR)
+    artifact = near_term.load(config.MODELS_DIR)
+    if artifact is None:
+        raise RuntimeError("The fitted near-term artifact did not validate")
+    _state["near_model"] = artifact
+    return {"near_term": summary, "duration_s": summary["duration_s"]}
+
+
+def _start_background_train(*, near_only: bool = False) -> None:
     """Kick off a train and return immediately.
 
     The synchronous endpoint holds the request open for the whole run -- fine for
@@ -403,7 +417,7 @@ def _start_background_train() -> None:
 
     def run() -> None:
         try:
-            do_train()
+            do_train_near_term() if near_only else do_train()
             # Publish with the new models at once rather than waiting up to five
             # minutes for the next cycle, exactly as the worker does.
             do_predict()
@@ -1227,21 +1241,21 @@ def run_predict() -> dict:
 
 
 @app.post("/train")
-def run_train(response: Response, background: bool = False) -> dict:
+def run_train(response: Response, background: bool = False, near_only: bool = False) -> dict:
     """Train now. `?background=1` starts it and returns; the panel uses that.
 
     The default stays synchronous so that anything already scripted against this
     endpoint -- which waits for the summary it returns -- is unaffected.
     """
     if background:
-        _start_background_train()
+        _start_background_train(near_only=near_only)
         response.status_code = 202
         return {"started": True}
 
     if not _train_lock.acquire(blocking=False):
         raise HTTPException(status_code=409, detail="a train is already running")
     try:
-        summary = do_train()
+        summary = do_train_near_term() if near_only else do_train()
     except HTTPException:
         raise
     except Exception as err:  # noqa: BLE001
@@ -1249,7 +1263,8 @@ def run_train(response: Response, background: bool = False) -> dict:
         raise HTTPException(status_code=500, detail=str(err)) from err
     finally:
         _train_lock.release()
-    return {"finished_at": _state["last_train"], **summary}
+    finished = summary["near_term"]["trained_at"] if near_only else _state["last_train"]
+    return {"finished_at": finished, **summary}
 
 
 @app.post("/reload")

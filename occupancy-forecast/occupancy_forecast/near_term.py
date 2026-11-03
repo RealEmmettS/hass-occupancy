@@ -21,17 +21,94 @@ from . import baseline, config, eta, evaluate, features, log, train
 MINUTES = (15, 30, 45, 60, 75, 90, 105, 120)
 HORIZONS = tuple(m / 60 for m in MINUTES)
 WINDOW = 5
-VERSION = "near-term-1"
+VERSION = "near-term-2"
+RETENTION_MINUTES = (60, 120)
 EXTRA = ("latest_home", "distance_delta_5m", "distance_delta_15m", "closing_kmh_15m")
 _log = log.get(__name__)
 
 
-def identity() -> str:
-    payload = {"version": VERSION, "subjects": [asdict(s) for s in config.SUBJECTS],
+def identity(*, version: str = VERSION) -> str:
+    payload = {"version": version, "subjects": [asdict(s) for s in config.SUBJECTS],
                "zones": [asdict(z) for z in config.ZONES], "timezone": config.TIMEZONE,
                "units": config.SETTINGS.units if config.SETTINGS else {},
                "country": config.HOLIDAY_COUNTRY}
     return hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
+
+
+def compatible(artifact) -> bool:
+    """Keep the previous working head available until the next qualified fit."""
+    return bool(artifact and (artifact.get("identity") == identity() or
+                (artifact.get("version") == "near-term-1" and
+                 artifact.get("identity") == identity(version="near-term-1"))))
+
+
+def fit_retention(frame: pd.DataFrame, minutes: int, *, before) -> dict:
+    """Count completed matching days that consistently support staying home.
+
+    Each local date counts once. The window is +/-90 clock minutes on the same
+    weekday, without wrapping across midnight. Unknown and unfinished targets
+    contribute no evidence. The caller fits this inside each chronological fold.
+    """
+    target = f"y_{minutes / 60}h"
+    selected = frame.loc[(frame.latest_home == 1.) & frame[target].notna() &
+                         (frame.time + pd.Timedelta(minutes=minutes + WINDOW)
+                          <= pd.Timestamp(before))].copy()
+    if selected.empty:
+        return {}
+    local = selected.time.dt.tz_convert(config.TIMEZONE)
+    selected["_dow"], selected["_day"] = local.dt.dayofweek, local.dt.date
+    selected["_minute"] = local.dt.hour * 60 + local.dt.minute
+    selected["_failed"] = (selected[target] < .5).astype(int)
+    clock = np.arange(0, 1440, WINDOW)
+    tables = {}
+    for (subject, dow), group in selected.groupby(["subject", "_dow"]):
+        days, failed = np.zeros(len(clock), dtype=int), np.zeros(len(clock), dtype=int)
+        for _, day in group.groupby("_day"):
+            day = day.sort_values("_minute")
+            times = day._minute.to_numpy()
+            left = np.searchsorted(times, clock - 90, side="left")
+            right = np.searchsorted(times, clock + 90, side="right")
+            cumulative = np.r_[0, np.cumsum(day._failed.to_numpy())]
+            days += right > left
+            failed += cumulative[right] > cumulative[left]
+        support = np.where((days >= 3) & (failed == 0), days, 0)
+        tables.setdefault(str(subject), np.zeros((7, len(clock)), dtype=np.int32))[int(dow)] = support
+    return tables
+
+
+def apply_retention(tables: dict, frame: pd.DataFrame, p: np.ndarray) -> np.ndarray:
+    """A bounded soft adjustment; current away/unknown or moving away wins."""
+    out = np.asarray(p, dtype=float).copy()
+    if not tables or frame.empty:
+        return out
+    local = frame.time.dt.tz_convert(config.TIMEZONE)
+    dow = local.dt.dayofweek.to_numpy()
+    clock = ((local.dt.hour * 60 + local.dt.minute) // WINDOW).to_numpy()
+    home = frame.latest_home.to_numpy() == 1.
+    moving = ((frame.dir_away.to_numpy() > .5) |
+              (frame.distance_delta_15m.to_numpy() > .05))
+    for subject, table in tables.items():
+        mask = (frame.subject.to_numpy() == subject) & home & ~moving & np.isfinite(out)
+        count = np.asarray(table)[dow[mask], clock[mask]]
+        out[mask] += .5 * (1. - out[mask]) * count / (count + 1.)
+    return np.clip(out, 0., 1.)
+
+
+def qualify(scored: pd.DataFrame) -> dict:
+    """Select the adjustment only on repeated fold wins and unchanged gates."""
+    metric = {**gate(scored), "retention": False}
+    if scored.empty or "retention_p" not in scored:
+        return metric
+    candidate = scored.assign(p=scored.retention_p)
+    adjusted = gate(candidate)
+    wins = sum(float(((f.retention_p - f.actual) ** 2).mean()) <
+               float(((f.p - f.actual) ** 2).mean())
+               for _, f in scored.groupby("fold"))
+    use = bool(adjusted["ship"] and adjusted["brier"] < metric["brier"] and
+               wins * 2 > scored.fold.nunique())
+    return {**(adjusted if use else metric), "retention": use,
+            "base_brier": metric["brier"], "retention_brier": adjusted["brier"],
+            "retention_folds_won": int(wins)}
 
 
 def add_movement(frame, source, start, stop):
@@ -136,16 +213,21 @@ def train_all(source, models_dir: Path, *, stop=None) -> dict:
             for name, predictor in baseline.predictors(horizon).items():
                 part["baseline_" + name] = predictor(tr, te)
             part["baseline_instant_persistence"] = te.latest_home
+            if minutes in RETENTION_MINUTES:
+                retention = fit_retention(tr, minutes, before=fold.test_start)
+                part["retention_p"] = apply_retention(retention, te, part.p.to_numpy())
             records.append(part)
         scored = pd.concat(records, ignore_index=True) if records else pd.DataFrame()
         metrics[str(minutes)] = {
-            s: gate(scored.loc[scored.subject == s] if not scored.empty else scored)
+            s: qualify(scored.loc[scored.subject == s] if not scored.empty else scored)
             for s in config.all_slugs()}
         if any(m["ship"] for m in metrics[str(minutes)].values()):
             fit = available.loc[available.time.dt.minute % 30 == 0]
             model = train._dedicated_estimator()
             model.fit(fit[columns], fit[target] - fit.state_now)
             models[minutes] = {"model": model, "columns": columns}
+            if any(m.get("retention") for m in metrics[str(minutes)].values()):
+                models[minutes]["retention"] = fit_retention(fit, minutes, before=stop)
         _log.info("near-term +%dm: %d/%d subjects qualify", minutes,
                   sum(m["ship"] for m in metrics[str(minutes)].values()), len(config.SUBJECTS))
     summary = {"version": VERSION, "trained_at": stop, "metrics": metrics,
@@ -166,7 +248,7 @@ def load(models_dir: Path) -> dict | None:
         return None
     try:
         artifact = pickle.loads(path.read_bytes())
-        return artifact if artifact.get("identity") == identity() else None
+        return artifact if compatible(artifact) else None
     except Exception:
         _log.warning("near-term artifact unavailable", exc_info=True)
         return None
@@ -182,7 +264,7 @@ def empty(at, reason="Waiting for near-term training") -> dict:
 def forecast(artifact, source, at=None) -> dict[str, dict]:
     at = at if at is not None else pd.Timestamp.now(tz="UTC")
     out = {s: empty(at) for s in config.all_slugs()}
-    if not artifact or artifact.get("identity") != identity():
+    if not compatible(artifact):
         return out
     try:
         start = (at - pd.Timedelta(days=features.deepest_lookback_days() + 2)).isoformat()
@@ -190,6 +272,7 @@ def forecast(artifact, source, at=None) -> dict[str, dict]:
         rows = frame.groupby("subject", sort=False).tail(1).set_index("subject", drop=False)
         for subject, row in rows.iterrows():
             payload = out[subject]
+            payload["model_version"] = artifact.get("version", VERSION)
             valid = np.isfinite(row.state_now) and np.isfinite(row.latest_home)
             payload["current"] = float(row.latest_home) if valid else None
             for point in payload["points"]:
@@ -201,6 +284,9 @@ def forecast(artifact, source, at=None) -> dict[str, dict]:
                 if valid and metric.get("ship") and fitted:
                     value = fitted["model"].predict(row.to_frame().T[fitted["columns"]])[0]
                     p = float(np.clip(value + row.state_now, 0., 1.))
+                    if metric.get("retention"):
+                        p = float(apply_retention(fitted.get("retention", {}),
+                                                 rows.loc[[subject]], np.array([p]))[0])
                     if np.isfinite(p):
                         point.update(p=p, reason=None)
         return out

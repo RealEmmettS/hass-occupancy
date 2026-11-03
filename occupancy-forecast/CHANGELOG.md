@@ -1,3 +1,11 @@
+# 0.1.9 — Better support for observed stay-home routines
+
+- Add a conservative personal retention adjustment at 60 and 120 minutes, learned from completed matching weekdays and clock windows.
+- Require three observed matching dates without a contrary target; bypass the adjustment when current presence is away, unknown, or shows movement away.
+- Select the adjustment separately for each subject and lead only when it wins repeated chronological folds and passes the existing publication gate.
+- Preserve compatible previous near-term models during an update, and record the new head as `near-term-2` after retraining.
+- Support `POST /train?near_only=1&background=1` to refresh the near-term head without refitting hourly, ETA or outing models.
+
 # 0.1.8 — Clearer occupancy pages
 
 - Put current presence and the next two hours first, followed by hourly forecasts and accuracy.
