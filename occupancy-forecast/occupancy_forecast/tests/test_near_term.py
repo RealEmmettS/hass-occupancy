@@ -78,6 +78,58 @@ def test_gate_is_per_subject_and_keeps_strong_persistence():
     assert not near_term.gate(pd.DataFrame())["ship"]
 
 
+def test_training_excludes_partial_derived_household_without_erasing_person_data():
+    config.configure(settings(house_entity=None))
+    times = pd.date_range("2026-05-01T00:00Z", periods=3, freq="30min")
+    frame = pd.DataFrame([
+        {"subject": subject, "time": time, "state_now": current,
+         "latest_home": current, "y_1.0h": target}
+        for subject, values in {
+            "alice": [(1., 1.), (1., 1.), (0., 0.)],
+            "bob": [(np.nan, 0.), (0., np.nan), (0., 0.)],
+            "house": [(1., 1.), (1., 1.), (0., 0.)],
+        }.items()
+        for time, (current, target) in zip(times, values)
+    ])
+    original = frame.copy(deep=True)
+    eligible = near_term.training_rows(frame)
+    assert eligible.loc[eligible.subject == "house", "time"].tolist() == list(times[1:])
+    target_rows = near_term.training_rows(frame, "y_1.0h")
+    assert target_rows.loc[target_rows.subject == "house", "time"].tolist() == [times[2]]
+    assert len(target_rows.loc[target_rows.subject == "alice"]) == 3
+    pd.testing.assert_frame_equal(frame, original)
+
+
+def test_direct_household_sensor_does_not_require_every_person_observation():
+    frame = pd.DataFrame([{"subject": "house", "time": pd.Timestamp("2026-05-01T00:00Z"),
+                           "state_now": 1., "latest_home": 1., "y_1.0h": 0.}])
+    assert len(near_term.training_rows(frame, "y_1.0h")) == 1
+
+
+def test_new_resident_gets_own_warmup_and_folds_in_an_old_household():
+    older = pd.date_range("2026-01-01T00:00Z", periods=70 * 48, freq="30min")
+    newer = pd.date_range("2026-03-01T00:00Z", periods=10 * 48, freq="30min")
+    frame = pd.concat([pd.DataFrame({"subject": "alice", "time": older}),
+                       pd.DataFrame({"subject": "bob", "time": newer})], ignore_index=True)
+    windows = near_term.validation_folds(frame)
+    assert len(windows["bob"]) == 2
+    assert windows["bob"][0].test_start == pd.Timestamp("2026-03-06T00:00Z")
+    assert windows["bob"][1].test_start == pd.Timestamp("2026-03-08T00:00Z")
+    assert windows["alice"][0].test_start == pd.Timestamp("2026-02-15T00:00Z")
+    # Replicating phases must not manufacture more independent validation days.
+    phased = pd.concat([frame.assign(time=frame.time + pd.Timedelta(minutes=m))
+                        for m in range(0, 30, 5)], ignore_index=True)
+    assert [f.test_start for f in near_term.validation_folds(phased)["bob"]] == [
+        pd.Timestamp("2026-03-06T00:00Z"), pd.Timestamp("2026-03-08T00:00Z")]
+
+
+def test_previous_near_term_artifact_survives_code_update_but_not_membership_change():
+    artifact = {"version": "near-term-2", "identity": near_term.identity(version="near-term-2")}
+    assert near_term.compatible(artifact)
+    config.configure(settings(people=["person.alice", "person.bob", "person.charlie"]))
+    assert not near_term.compatible(artifact)
+
+
 def test_store_retains_withheld_revisions_and_ignores_retries(tmp_path):
     store = HistoryStore(tmp_path / "history.db")
     a = _ms("2026-05-01T00:00Z")

@@ -1,3 +1,11 @@
+# 0.1.10 — Fair qualification when residents have different history
+
+- Give each resident their own chronological warm-up and validation windows, counted in half-hour origins rather than five-minute rows.
+- Train and validate a derived household only on origins and targets observed for every selected resident, avoiding positive-only history before a new resident was tracked.
+- Preserve valid live household presence and independently observed household sensors.
+- Keep the existing publication thresholds and support fitted `near-term-1` and `near-term-2` models during the update. New fits are recorded as `near-term-3`.
+- Keep hourly, arrival and outing models unchanged during near-term-only training.
+
 # 0.1.9 — Better support for observed stay-home routines
 
 - Add a conservative personal retention adjustment at 60 and 120 minutes, learned from completed matching weekdays and clock windows.

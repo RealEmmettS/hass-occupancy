@@ -21,7 +21,7 @@ from . import baseline, config, eta, evaluate, features, log, train
 MINUTES = (15, 30, 45, 60, 75, 90, 105, 120)
 HORIZONS = tuple(m / 60 for m in MINUTES)
 WINDOW = 5
-VERSION = "near-term-2"
+VERSION = "near-term-3"
 RETENTION_MINUTES = (60, 120)
 EXTRA = ("latest_home", "distance_delta_5m", "distance_delta_15m", "closing_kmh_15m")
 _log = log.get(__name__)
@@ -38,8 +38,8 @@ def identity(*, version: str = VERSION) -> str:
 def compatible(artifact) -> bool:
     """Keep the previous working head available until the next qualified fit."""
     return bool(artifact and (artifact.get("identity") == identity() or
-                (artifact.get("version") == "near-term-1" and
-                 artifact.get("identity") == identity(version="near-term-1"))))
+                (artifact.get("version") in ("near-term-1", "near-term-2") and
+                 artifact.get("identity") == identity(version=artifact["version"]))))
 
 
 def fit_retention(frame: pd.DataFrame, minutes: int, *, before) -> dict:
@@ -175,48 +175,80 @@ def gate(scored: pd.DataFrame) -> dict:
             "required_skill_pct": train.min_ship_skill_pct(folds)}
 
 
+def training_rows(frame: pd.DataFrame, target: str | None = None) -> pd.DataFrame:
+    """Require complete member evidence when fitting a derived household.
+
+    One known person at home is enough for the live OR state to be home. It is
+    not enough for unbiased training: before another resident has history, that
+    rule includes positive household labels but excludes every negative label.
+    Keep those valid live states, but fit/score the derived household only when
+    all selected people have observed origins and, if requested, targets.
+    An independently observed household sensor does not need this restriction.
+    """
+    required = ["state_now", "latest_home"] + ([target] if target else [])
+    eligible = frame.dropna(subset=required)
+    house = config.subject(config.HOUSE_SLUG)
+    if house.entity_id:
+        return eligible
+    people = [s.slug for s in config.PEOPLE]
+    counts = eligible.loc[eligible.subject.isin(people)].groupby("time").subject.nunique()
+    complete = counts.index[counts == len(people)]
+    return eligible.loc[(eligible.subject != config.HOUSE_SLUG) |
+                        eligible.time.isin(complete)]
+
+
+def validation_folds(frame: pd.DataFrame) -> dict[str, list[evaluate.Fold]]:
+    """Use each subject's own warm-up, without inflating five-minute evidence."""
+    origins = frame.loc[frame.time.dt.minute % 30 == 0]
+    return {
+        str(subject): evaluate.calendar_folds(
+            own.time, embargo=pd.Timedelta(minutes=max(MINUTES) + 30),
+            **evaluate.fold_geometry(own.time, n_subjects=1))
+        for subject, own in origins.groupby("subject")
+    }
+
+
 def train_all(source, models_dir: Path, *, stop=None) -> dict:
     started = time.monotonic()
     stop = stop or pd.Timestamp.now(tz="UTC").isoformat()
     frame = build(source, stop=stop)
-    eligible = frame.dropna(subset=["state_now", "latest_home"])
-    origins = eligible.loc[eligible.time.dt.minute % 30 == 0]
-    # Same existing fold geometry, counted in half-hour origins, not sixfold
-    # inflated by the finer validation grid.
-    geometry = evaluate.fold_geometry(origins.time)
-    folds = evaluate.calendar_folds(origins.time,
-                                    embargo=pd.Timedelta(minutes=max(MINUTES) + 30),
-                                    **geometry)
     models, metrics = {}, {}
     for minutes, horizon in zip(MINUTES, HORIZONS):
         target = f"y_{horizon}h"
-        available = eligible.dropna(subset=[target])
+        available = training_rows(frame, target)
+        folds = validation_folds(available)
         columns = train.features_for(horizon) + list(EXTRA)
         records = []
-        for fold in folds:
-            embargo = pd.Timedelta(minutes=minutes + 30)
-            tr = available.loc[(available.time + embargo < fold.test_start)
-                               & (available.time.dt.minute % 30 == 0)]
-            te = available.loc[(available.time >= fold.test_start)
-                               & (available.time + pd.Timedelta(minutes=minutes + WINDOW)
-                                  <= min(fold.test_stop, pd.Timestamp(stop)))]
-            if len(tr) < geometry["min_test_rows"] or te.empty:
-                continue
-            model = train._dedicated_estimator()
-            model.fit(tr[columns], tr[target] - tr.state_now)
-            part = te[["subject", "time"]].copy()
-            part["p"] = np.clip(model.predict(te[columns]) + te.state_now, 0., 1.)
-            part["actual"] = (te[target] >= .5).astype(float)
-            part["fold"] = fold.index
-            # The conventional half-hour calendar baseline remains a strong
-            # comparator at every phase; row-local lag baselines use 5m truth.
-            for name, predictor in baseline.predictors(horizon).items():
-                part["baseline_" + name] = predictor(tr, te)
-            part["baseline_instant_persistence"] = te.latest_home
-            if minutes in RETENTION_MINUTES:
-                retention = fit_retention(tr, minutes, before=fold.test_start)
-                part["retention_p"] = apply_retention(retention, te, part.p.to_numpy())
-            records.append(part)
+        for subject, windows in folds.items():
+            origins = available.loc[(available.subject == subject) &
+                                    (available.time.dt.minute % 30 == 0)]
+            minimum = evaluate.fold_geometry(origins.time, n_subjects=1)["min_test_rows"]
+            for fold in windows:
+                embargo = pd.Timedelta(minutes=minutes + 30)
+                tr = available.loc[(available.time + embargo < fold.test_start)
+                                   & (available.time.dt.minute % 30 == 0)]
+                te = available.loc[(available.subject == subject)
+                                   & (available.time >= fold.test_start)
+                                   & (available.time + pd.Timedelta(minutes=minutes + WINDOW)
+                                      <= min(fold.test_stop, pd.Timestamp(stop)))]
+                if (len(tr.loc[tr.subject == subject]) < minimum or
+                        len(te.loc[te.time.dt.minute % 30 == 0]) < minimum):
+                    continue
+                model = train._dedicated_estimator()
+                model.fit(tr[columns], tr[target] - tr.state_now)
+                part = te[["subject", "time"]].copy()
+                part["p"] = np.clip(model.predict(te[columns]) + te.state_now, 0., 1.)
+                part["actual"] = (te[target] >= .5).astype(float)
+                part["fold"] = fold.index
+                # Calendar baselines retain half-hour clocks at every phase;
+                # row-local lag baselines and targets retain five-minute truth.
+                for name, predictor in baseline.predictors(horizon).items():
+                    part["baseline_" + name] = predictor(tr, te)
+                part["baseline_instant_persistence"] = te.latest_home
+                if minutes in RETENTION_MINUTES:
+                    retention = fit_retention(tr, minutes, before=fold.test_start)
+                    part["retention_p"] = apply_retention(retention, te, part.p.to_numpy())
+                records.append(part)
         scored = pd.concat(records, ignore_index=True) if records else pd.DataFrame()
         metrics[str(minutes)] = {
             s: qualify(scored.loc[scored.subject == s] if not scored.empty else scored)
@@ -232,7 +264,8 @@ def train_all(source, models_dir: Path, *, stop=None) -> dict:
                   sum(m["ship"] for m in metrics[str(minutes)].values()), len(config.SUBJECTS))
     summary = {"version": VERSION, "trained_at": stop, "metrics": metrics,
                "duration_s": round(time.monotonic() - started, 1),
-               "validation": "chronological; half-hour fits; all five-minute phases"}
+               "validation": "per-subject chronological warm-up; complete household labels; "
+                             "half-hour fits; all five-minute phases"}
     artifact = {**summary, "identity": identity(), "models": models}
     models_dir.mkdir(parents=True, exist_ok=True)
     path = models_dir / "near_term.pkl"
